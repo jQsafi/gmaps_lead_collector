@@ -147,48 +147,116 @@ def send_whatsapp_message(
     page, 
     phone: str, 
     message: str, 
+    media_path: str = None,
     timeout_ms: int = 35000
 ) -> dict:
     """
-    Sends a single message to a phone number via an existing WhatsApp Web page.
+    Sends a single message (with optional media attachment) to a phone number via WhatsApp Web.
     """
-    encoded_text = urllib.parse.quote(message)
-    url = f"https://web.whatsapp.com/send?phone={phone}&text={encoded_text}"
-    
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-        
-        # Wait for either the chat input box or invalid number alert
-        start_wait = time.time()
-        while time.time() - start_wait < 25:
-            # 1. Check for invalid number alert
-            invalid_alert = page.locator("div:has-text('Phone number shared via url is invalid'), div:has-text('URL is invalid'), div:has-text('invalid phone number')").first
-            if invalid_alert.count() > 0 and invalid_alert.is_visible():
-                # Dismiss modal if present
-                try:
-                    page.keyboard.press("Escape")
-                except Exception:
-                    pass
-                return {"phone": phone, "status": "Invalid Number", "error": "Number not registered on WhatsApp"}
+        if media_path and os.path.exists(media_path):
+            # 1. Open chat directly without pre-filling text in URL so text is placed in the media caption
+            url = f"https://web.whatsapp.com/send?phone={phone}"
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            
+            # Wait for chat input or invalid number alert
+            start_wait = time.time()
+            chat_ready = False
+            while time.time() - start_wait < 25:
+                invalid_alert = page.locator("div:has-text('Phone number shared via url is invalid'), div:has-text('URL is invalid'), div:has-text('invalid phone number')").first
+                if invalid_alert.count() > 0 and invalid_alert.is_visible():
+                    try:
+                        page.keyboard.press("Escape")
+                    except Exception:
+                        pass
+                    return {"phone": phone, "status": "Invalid Number", "error": "Number not registered on WhatsApp"}
+                
+                # Check if chat interface or attachment button is ready
+                if (
+                    page.locator('button[aria-label="Attach"]').count() > 0 or
+                    page.locator('span[data-icon="plus"]').count() > 0 or
+                    page.locator('span[data-icon="attach-menu-plus"]').count() > 0 or
+                    page.locator('div[contenteditable="true"]').count() > 0
+                ):
+                    chat_ready = True
+                    break
+                time.sleep(1.0)
+                
+            if not chat_ready:
+                return {"phone": phone, "status": "Timeout", "error": "Chat interface did not load within timeout"}
+            
+            time.sleep(1.5)
+            # 2. Attach media file via file input or attach menu
+            try:
+                file_input = page.locator('input[type="file"]').first
+                if file_input.count() > 0:
+                    file_input.set_input_files(media_path)
+                else:
+                    attach_btn = page.locator('button[aria-label="Attach"], div[title="Attach"], span[data-icon="plus"], span[data-icon="attach-menu-plus"]').first
+                    if attach_btn.count() > 0 and attach_btn.is_visible():
+                        attach_btn.click()
+                        time.sleep(1.0)
+                        file_input = page.locator('input[type="file"]').first
+                        file_input.set_input_files(media_path)
+            except Exception as up_err:
+                return {"phone": phone, "status": "Upload Failed", "error": f"Failed to attach media: {up_err}"}
 
-            # 2. Check for message send button
-            send_btn = page.locator('button[data-tab="11"], button[aria-label="Send"], span[data-icon="send"], button:has(span[data-icon="send"]), span[data-icon="wds-ic-send-filled"], button[aria-label*="send" i]').first
+            # 3. Wait for Media Preview / Caption box to appear
+            time.sleep(2.5)
+            try:
+                caption_box = page.locator('div[aria-label*="caption" i], div[contenteditable="true"]').last
+                if caption_box.count() > 0 and message:
+                    caption_box.focus()
+                    caption_box.fill(message)
+                    time.sleep(1.0)
+            except Exception:
+                pass
+
+            # 4. Click send button
+            send_btn = page.locator('span[data-icon="send"], div[aria-label="Send"], button:has(span[data-icon="send"]), span[data-icon="wds-ic-send-filled"]').last
             if send_btn.count() > 0 and send_btn.is_visible():
                 send_btn.click()
-                time.sleep(2.0)
-                return {"phone": phone, "status": "Sent", "error": None}
-
-            # 3. Alternatively check editable input box and press Enter
-            input_box = page.locator('div[contenteditable="true"]').last
-            if input_box.count() > 0 and input_box.is_visible():
-                input_box.focus()
+            else:
                 page.keyboard.press("Enter")
-                time.sleep(2.0)
-                return {"phone": phone, "status": "Sent", "error": None}
 
-            time.sleep(1.0)
+            # Wait for upload completion
+            time.sleep(4.0)
+            return {"phone": phone, "status": "Sent", "error": None}
+
+        else:
+            # Standard text-only message via direct URL
+            encoded_text = urllib.parse.quote(message)
+            url = f"https://web.whatsapp.com/send?phone={phone}&text={encoded_text}"
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             
-        return {"phone": phone, "status": "Timeout", "error": "Chat or send button did not load within timeout"}
+            start_wait = time.time()
+            while time.time() - start_wait < 25:
+                invalid_alert = page.locator("div:has-text('Phone number shared via url is invalid'), div:has-text('URL is invalid'), div:has-text('invalid phone number')").first
+                if invalid_alert.count() > 0 and invalid_alert.is_visible():
+                    try:
+                        page.keyboard.press("Escape")
+                    except Exception:
+                        pass
+                    return {"phone": phone, "status": "Invalid Number", "error": "Number not registered on WhatsApp"}
+
+                # Send button
+                send_btn = page.locator('button[data-tab="11"], button[aria-label="Send"], span[data-icon="send"], button:has(span[data-icon="send"]), span[data-icon="wds-ic-send-filled"], button[aria-label*="send" i]').first
+                if send_btn.count() > 0 and send_btn.is_visible():
+                    send_btn.click()
+                    time.sleep(2.0)
+                    return {"phone": phone, "status": "Sent", "error": None}
+
+                # Input box Enter key fallback
+                input_box = page.locator('div[contenteditable="true"]').last
+                if input_box.count() > 0 and input_box.is_visible():
+                    input_box.focus()
+                    page.keyboard.press("Enter")
+                    time.sleep(2.0)
+                    return {"phone": phone, "status": "Sent", "error": None}
+
+                time.sleep(1.0)
+                
+            return {"phone": phone, "status": "Timeout", "error": "Chat or send button did not load within timeout"}
 
     except Exception as e:
         return {"phone": phone, "status": "Failed", "error": str(e)}
@@ -202,7 +270,8 @@ def bulk_send_whatsapp(
     session_dir: str = DEFAULT_SESSION_DIR,
     progress_callback = None,
     use_ai_personalization: bool = False,
-    ai_offer: str = ""
+    ai_offer: str = "",
+    media_path: str = None
 ) -> list:
     """
     Automates bulk messaging to a list of leads using Playwright and WhatsApp Web.
@@ -216,6 +285,7 @@ def bulk_send_whatsapp(
     :param progress_callback: Callback(current_idx, total, current_lead, status_dict, screenshot)
     :param use_ai_personalization: Use Groq LLM to write custom messages per business
     :param ai_offer: Description of your service or offer for Groq AI copywriter
+    :param media_path: Optional path to an image, PDF, or video file to attach
     """
     os.makedirs(session_dir, exist_ok=True)
     results = []
@@ -246,13 +316,31 @@ def bulk_send_whatsapp(
             progress_callback(0, total, None, {"status": "Connecting to WhatsApp Web..."}, None)
             
         page.goto("https://web.whatsapp.com/", wait_until="domcontentloaded", timeout=45000)
-        time.sleep(4)
         
-        # Check if login is needed
-        qr_canvas = page.locator('canvas, div[data-ref]').first
-        if qr_canvas.count() > 0 and qr_canvas.is_visible():
-            context.close()
-            raise RuntimeError("WhatsApp Web is not logged in. Please scan the QR code first via the Login button.")
+        # Hydrate session for up to 12 seconds
+        start_wait_ready = time.time()
+        is_ready = False
+        while time.time() - start_wait_ready < 12:
+            if (
+                page.locator('#pane-side').count() > 0 or
+                page.locator('div[data-testid="chat-list"]').count() > 0 or
+                page.locator('div[aria-label*="chat list" i]').count() > 0 or
+                page.locator('header').count() > 0
+            ):
+                is_ready = True
+                break
+            
+            qr_canvas = page.locator('canvas, div[data-ref]').first
+            if qr_canvas.count() > 0 and qr_canvas.is_visible() and (time.time() - start_wait_ready > 6):
+                context.close()
+                raise RuntimeError("WhatsApp Web is not logged in. Please scan the QR code first via the Connect button.")
+            time.sleep(1.5)
+
+        if not is_ready:
+            qr_canvas = page.locator('canvas, div[data-ref]').first
+            if qr_canvas.count() > 0 and qr_canvas.is_visible():
+                context.close()
+                raise RuntimeError("WhatsApp Web is not logged in. Please scan the QR code first via the Connect button.")
 
         for idx, lead in enumerate(leads):
             raw_phone = lead.get("Phone", "")
@@ -280,11 +368,10 @@ def bulk_send_whatsapp(
                 msg = message_template
                 for k, v in lead.items():
                     msg = msg.replace(f"{{{k}}}", str(v) if v else "")
-                # Default fallbacks
                 msg = msg.replace("{Name}", lead_name).replace("{Phone}", raw_phone)
 
-            # Send message
-            send_res = send_whatsapp_message(page, formatted_phone, msg)
+            # Send message (with optional media)
+            send_res = send_whatsapp_message(page, formatted_phone, msg, media_path=media_path)
             send_res["name"] = lead_name
             results.append(send_res)
 
@@ -312,31 +399,37 @@ def send_test_whatsapp_message(
     default_country_code: str = "880",
     headless: bool = True,
     session_dir: str = DEFAULT_SESSION_DIR,
-    progress_callback = None
+    progress_callback = None,
+    media_path: str = None
 ) -> dict:
     """
     Sends a single test message using the active WhatsApp Web session.
+    Safely captures all errors to prevent crashing caller.
     """
-    leads = [{
-        "Name": "Test Contact",
-        "Phone": phone,
-        "Category": "Test Business",
-        "Address": "Test Location",
-        "Website": ""
-    }]
-    results = bulk_send_whatsapp(
-        leads=leads,
-        message_template=message,
-        default_country_code=default_country_code,
-        delay_between_messages=1,
-        headless=headless,
-        session_dir=session_dir,
-        progress_callback=progress_callback,
-        use_ai_personalization=False
-    )
-    if results:
-        return results[0]
-    return {"phone": phone, "status": "Failed", "error": "No delivery response returned"}
+    try:
+        leads = [{
+            "Name": "Test Contact",
+            "Phone": phone,
+            "Category": "Test Business",
+            "Address": "Test Location",
+            "Website": ""
+        }]
+        results = bulk_send_whatsapp(
+            leads=leads,
+            message_template=message,
+            default_country_code=default_country_code,
+            delay_between_messages=1,
+            headless=headless,
+            session_dir=session_dir,
+            progress_callback=progress_callback,
+            use_ai_personalization=False,
+            media_path=media_path
+        )
+        if results:
+            return results[0]
+        return {"phone": phone, "status": "Failed", "error": "No delivery response returned"}
+    except Exception as e:
+        return {"phone": phone, "status": "Failed", "error": str(e)}
 
 def parse_manual_numbers(raw_text: str) -> list:
     """

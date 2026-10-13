@@ -625,6 +625,22 @@ with tab3:
         use_ai_personalize = st.checkbox("🤖 Groq 1-to-1 Personalization", value=False, help="Use Groq to generate a unique personalized message for each individual business based on their name, category, and location", key="wa_use_ai")
         show_wa_browser = st.checkbox("👁️ Open Visible WhatsApp Browser", value=False, help="Open external browser window (unchecked runs in background headless mode)", key="wa_watch_browser")
 
+    # Media attachment upload
+    media_upload = st.file_uploader(
+        "📎 Attach Media (Optional - Image, PDF brochure, Catalog, or Short Video):", 
+        type=["png", "jpg", "jpeg", "pdf", "mp4"],
+        help="Attach an image or PDF brochure to send with your message as a caption",
+        key="wa_media_file"
+    )
+    saved_media_path = None
+    if media_upload is not None:
+        media_temp_dir = os.path.abspath("./whatsapp_temp_media")
+        os.makedirs(media_temp_dir, exist_ok=True)
+        saved_media_path = os.path.join(media_temp_dir, media_upload.name)
+        with open(saved_media_path, "wb") as f:
+            f.write(media_upload.getbuffer())
+        st.success(f"📎 Attached file: **{media_upload.name}** ({media_upload.size // 1024} KB) — will be sent with your message as the caption!")
+
     # Test Message Block
     st.markdown("---")
     st.markdown("#### 🧪 Test Message Verification")
@@ -652,6 +668,8 @@ with tab3:
 
     with st.expander("👁️ Preview Rendered Test Message", expanded=False):
         st.info(test_rendered_msg)
+        if saved_media_path:
+            st.caption(f"📎 Plus attachment: `{os.path.basename(saved_media_path)}`")
 
     test_msg_status_box = st.empty()
     test_preview_box = st.empty()
@@ -668,18 +686,25 @@ with tab3:
                         with test_preview_box.container():
                             st.image(screenshot, caption="Test Message Live Browser Preview", width=420)
 
-                test_res = send_test_whatsapp_message(
-                    phone=test_number.strip(),
-                    message=test_rendered_msg,
-                    default_country_code=country_code,
-                    headless=not show_wa_browser,
-                    progress_callback=test_stream_cb
-                )
+                try:
+                    test_res = send_test_whatsapp_message(
+                        phone=test_number.strip(),
+                        message=test_rendered_msg,
+                        default_country_code=country_code,
+                        headless=not show_wa_browser,
+                        progress_callback=test_stream_cb,
+                        media_path=saved_media_path
+                    )
 
-                if test_res.get("status") == "Sent":
-                    test_msg_status_box.success(f"🎉 Test message sent successfully to **{test_res.get('phone')}**! Verify it on your WhatsApp.")
-                else:
-                    test_msg_status_box.error(f"❌ Failed to send test message: {test_res.get('error', 'Unknown error')} (Status: {test_res.get('status')})")
+                    if test_res.get("status") == "Sent":
+                        test_msg_status_box.success(f"🎉 Test message sent successfully to **{test_res.get('phone')}**! Verify it on your WhatsApp.")
+                    else:
+                        err_msg = test_res.get('error', 'Unknown error')
+                        test_msg_status_box.error(f"❌ Failed to send test message: {err_msg} (Status: {test_res.get('status')})")
+                        if "not logged in" in err_msg.lower():
+                            st.session_state["whatsapp_logged_in"] = False
+                except Exception as test_err:
+                    test_msg_status_box.error(f"❌ Automation error while sending test message: {test_err}")
 
     st.markdown("---")
     st.markdown("#### 3️⃣ Launch Automated Bulk Campaign")
@@ -739,7 +764,8 @@ with tab3:
                     headless=not show_wa_browser,
                     progress_callback=wa_callback,
                     use_ai_personalization=use_ai_personalize,
-                    ai_offer=message_template
+                    ai_offer=message_template,
+                    media_path=saved_media_path
                 )
                 st.success(f"🎉 WhatsApp Campaign Completed! Processed {len(results)} leads.")
                 with wa_screen_placeholder.container():
