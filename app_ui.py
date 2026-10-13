@@ -43,23 +43,24 @@ def inject_gtm_into_index_html():
             html_text = index_file.read_text(encoding="utf-8")
             gtm_id = "GTM-W7P72R2N"
             if gtm_id not in html_text:
-                gtm_head_code = f"""<!-- Google Tag Manager -->
+                gtm_head_code = f"""<head>
+<!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){{w[l]=w[l]||[];w[l].push({{'gtm.start':
 new Date().getTime(),event:'gtm.js'}});var f=d.getElementsByTagName(s)[0],
 j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
 }})(window,document,'script','dataLayer','{gtm_id}');</script>
-<!-- End Google Tag Manager -->
-</head>"""
-                gtm_body_code = f"""<!-- Google Tag Manager (noscript) -->
+<!-- End Google Tag Manager -->"""
+                gtm_body_code = f"""<body>
+<!-- Google Tag Manager (noscript) -->
 <noscript><iframe src="https://www.googletagmanager.com/ns.html?id={gtm_id}"
 height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-<!-- End Google Tag Manager (noscript) -->
-<div id="root">"""
-                if "</head>" in html_text and '<div id="root">' in html_text:
-                    html_text = html_text.replace("</head>", gtm_head_code, 1)
-                    html_text = html_text.replace('<div id="root">', gtm_body_code, 1)
-                    index_file.write_text(html_text, encoding="utf-8")
+<!-- End Google Tag Manager (noscript) -->"""
+                if "<head>" in html_text:
+                    html_text = html_text.replace("<head>", gtm_head_code, 1)
+                if "<body>" in html_text:
+                    html_text = html_text.replace("<body>", gtm_body_code, 1)
+                index_file.write_text(html_text, encoding="utf-8")
     except Exception:
         pass
 
