@@ -54,6 +54,10 @@ A powerful, automated lead generation and business contact extraction tool for *
   - Connect effortlessly to cloud SQL databases such as **PostgreSQL (Supabase, Neon.tech, Railway, AWS RDS)**, **MySQL**, or local **SQLite**.
   - Intelligent deduplication on insert via unique Google Maps listing URLs and contact numbers.
   - Interactive SQL explorer in Web UI (Tab 4) with search filters, real-time statistics, CSV/Excel export, and direct sync into WhatsApp outreach.
+- **🤖 Groq AI Copywriter & Dynamic 1-to-1 Personalization**:
+  - High-speed AI inference powered by Groq (`openai/gpt-oss-120b` and `gpt-oss-20b`).
+  - Auto-generate persuasive, tailored cold outreach templates based on your target service and desired tone.
+  - Optional 1-to-1 personalization engine that crafts unique bespoke messages for each individual business lead referencing their specific name, category, rating, and address.
 - **📊 Export Formats**:
   - **Excel (`.xlsx`)**: Formatted spreadsheet ready for sales teams.
   - **CSV (`.csv`)**: Exported with `UTF-8 with BOM` (`utf-8-sig`) encoding to ensure international and localized characters display cleanly in Microsoft Excel.
@@ -300,7 +304,8 @@ gmaps_lead_collector/
 ├── app_ui.py           # Streamlit web application frontend (Search, WhatsApp & Database)
 ├── database.py         # SQLAlchemy ORM, cloud DB connections, deduplication & stats
 ├── whatsapp_sender.py  # WhatsApp automation engine (Web automation & CLI)
-├── .env.example        # Example environment variables (Supabase, Neon, PostgreSQL)
+├── groq_helper.py      # Groq AI LLM integration (Copywriting & 1-to-1 personalization)
+├── .env.example        # Example environment variables (Groq API, Supabase, Neon)
 ├── requirements.txt    # Project Python dependencies
 └── README.md           # Project documentation and user guide
 ```

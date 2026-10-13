@@ -9,6 +9,8 @@ from whatsapp_sender import (
     bulk_send_whatsapp
 )
 import database
+import groq_helper
+
 
 st.set_page_config(
     page_title="Google Maps Lead & Phone Collector",
@@ -413,6 +415,30 @@ with tab3:
         st.markdown("---")
         st.markdown("#### 2️⃣ Compose Message & Automation Settings")
 
+        # Groq AI Assistant Expander
+        with st.expander("✨ Groq AI Message Copywriter (Powered by Groq)", expanded=False):
+            g_conn, g_msg = groq_helper.test_groq_connection()
+            if g_conn:
+                st.caption("🟢 **Groq API Status**: Active & Connected (`openai/gpt-oss-120b`)")
+            else:
+                st.caption(f"🔴 **Groq API Status**: {g_msg}")
+
+            col_ai1, col_ai2 = st.columns([2, 1])
+            with col_ai1:
+                ai_pitch_offer = st.text_input("Your Service / Offer / Pitch:", value="Exclusive 25% discount on stationery & school supplies", key="ai_pitch_input")
+            with col_ai2:
+                ai_tone = st.selectbox("Tone:", ["Friendly & Professional", "Direct & Concise", "Casual & Warm", "Urgent Promotion"], key="ai_tone_input")
+
+            if st.button("🪄 Generate Cold Pitch with Groq AI", key="btn_gen_ai_pitch"):
+                with st.spinner("Groq AI is crafting your cold pitch..."):
+                    new_tmpl = groq_helper.generate_outreach_template(goal=ai_pitch_offer, tone=ai_tone)
+                    if new_tmpl and not new_tmpl.startswith("Error"):
+                        st.session_state["wa_msg_tmpl"] = new_tmpl
+                        st.success("Pitch generated! Updated template below.")
+                        st.rerun()
+                    else:
+                        st.error(f"Generation error: {new_tmpl}")
+
         col_msg, col_settings = st.columns([1.5, 1])
         with col_msg:
             default_template = "Hello {Name}, I noticed your business ({Category}) in {Address}. Are you currently accepting new orders/clients?"
@@ -427,6 +453,7 @@ with tab3:
         with col_settings:
             country_code = st.text_input("Default Country Code (without +):", value="880", help="e.g. 880 for Bangladesh, 1 for USA, 44 for UK", key="wa_cc")
             delay = st.slider("Safety Delay Between Messages (seconds):", min_value=5, max_value=30, value=8, help="Recommended to prevent WhatsApp spam flags", key="wa_delay")
+            use_ai_personalize = st.checkbox("🤖 Groq 1-to-1 Personalization", value=False, help="Use Groq to generate a unique personalized message for each individual business based on their name, category, and location", key="wa_use_ai")
             show_wa_browser = st.checkbox("👁️ Open Visible WhatsApp Browser", value=False, help="Open external browser window (unchecked runs in background headless mode)", key="wa_watch_browser")
 
         start_campaign = st.button("🚀 Start Automated WhatsApp Campaign", key="btn_start_wa", type="primary", use_container_width=True)
@@ -483,7 +510,9 @@ with tab3:
                         default_country_code=country_code,
                         delay_between_messages=delay,
                         headless=not show_wa_browser,
-                        progress_callback=wa_callback
+                        progress_callback=wa_callback,
+                        use_ai_personalization=use_ai_personalize,
+                        ai_offer=message_template
                     )
                     st.success(f"🎉 WhatsApp Campaign Completed! Processed {len(results)} leads.")
                     with wa_screen_placeholder.container():

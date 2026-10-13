@@ -1,4 +1,9 @@
-# Virtual environment
+# Environment & secret keys
+.env
+*.env
+.env.*
+!.env.example
+
 venv/
 env/
 .venv/

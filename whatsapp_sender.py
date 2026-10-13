@@ -128,7 +128,9 @@ def bulk_send_whatsapp(
     delay_between_messages: int = 8,
     headless: bool = True,
     session_dir: str = DEFAULT_SESSION_DIR,
-    progress_callback = None
+    progress_callback = None,
+    use_ai_personalization: bool = False,
+    ai_offer: str = ""
 ) -> list:
     """
     Automates bulk messaging to a list of leads using Playwright and WhatsApp Web.
@@ -140,6 +142,8 @@ def bulk_send_whatsapp(
     :param headless: Run in headless mode (headless=False recommended for WhatsApp Web)
     :param session_dir: Path to saved WhatsApp persistent profile
     :param progress_callback: Callback(current_idx, total, current_lead, status_dict, screenshot)
+    :param use_ai_personalization: Use Groq LLM to write custom messages per business
+    :param ai_offer: Description of your service or offer for Groq AI copywriter
     """
     os.makedirs(session_dir, exist_ok=True)
     results = []
@@ -183,12 +187,22 @@ def bulk_send_whatsapp(
                     progress_callback(idx + 1, total, lead, res, None)
                 continue
 
-            # Personalize message template with lead fields
-            msg = message_template
-            for k, v in lead.items():
-                msg = msg.replace(f"{{{k}}}", str(v) if v else "")
-            # Default fallbacks
-            msg = msg.replace("{Name}", lead_name).replace("{Phone}", raw_phone)
+            # Determine message: either Groq AI personalized or template
+            if use_ai_personalization:
+                try:
+                    import groq_helper
+                    msg = groq_helper.generate_personalized_message(lead, offering=ai_offer or message_template)
+                except Exception:
+                    msg = message_template
+                    for k, v in lead.items():
+                        msg = msg.replace(f"{{{k}}}", str(v) if v else "")
+                    msg = msg.replace("{Name}", lead_name).replace("{Phone}", raw_phone)
+            else:
+                msg = message_template
+                for k, v in lead.items():
+                    msg = msg.replace(f"{{{k}}}", str(v) if v else "")
+                # Default fallbacks
+                msg = msg.replace("{Name}", lead_name).replace("{Phone}", raw_phone)
 
             # Send message
             send_res = send_whatsapp_message(page, formatted_phone, msg)
@@ -234,6 +248,7 @@ if __name__ == "__main__":
     parser.add_argument("--cc", default="880", help="Default country code (default: 880)")
     parser.add_argument("--delay", type=int, default=8, help="Delay between messages in seconds (default: 8)")
     parser.add_argument("--visible", action="store_true", help="Run visible browser instead of headless")
+    parser.add_argument("--ai", action="store_true", help="Use Groq AI to personalize each message dynamically")
 
     args = parser.parse_args()
 
@@ -252,13 +267,15 @@ if __name__ == "__main__":
             print("[-] WhatsApp Web session not found. Run with --login first.")
     elif args.phone:
         leads = [{"Name": args.name, "Phone": args.phone}]
-        print(f"[*] Sending message to {args.phone}...")
+        print(f"[*] Sending message to {args.phone} (AI mode: {args.ai})...")
         results = bulk_send_whatsapp(
             leads=leads,
             message_template=args.template,
             default_country_code=args.cc,
             delay_between_messages=args.delay,
-            headless=not args.visible
+            headless=not args.visible,
+            use_ai_personalization=args.ai,
+            ai_offer=args.template
         )
         print(f"[+] Result: {results}")
     elif args.file:
@@ -267,13 +284,15 @@ if __name__ == "__main__":
         else:
             df = pd.read_excel(args.file)
         leads = df.to_dict("records")
-        print(f"[*] Starting bulk WhatsApp campaign for {len(leads)} leads from {args.file}...")
+        print(f"[*] Starting bulk WhatsApp campaign for {len(leads)} leads from {args.file} (AI mode: {args.ai})...")
         results = bulk_send_whatsapp(
             leads=leads,
             message_template=args.template,
             default_country_code=args.cc,
             delay_between_messages=args.delay,
-            headless=not args.visible
+            headless=not args.visible,
+            use_ai_personalization=args.ai,
+            ai_offer=args.template
         )
         print(f"[+] Campaign finished! {len(results)} leads processed.")
     else:
