@@ -172,14 +172,14 @@ def send_whatsapp_message(
                 return {"phone": phone, "status": "Invalid Number", "error": "Number not registered on WhatsApp"}
 
             # 2. Check for message send button
-            send_btn = page.locator('button[data-tab="11"], button[aria-label="Send"], span[data-icon="send"], button:has(span[data-icon="send"])').first
+            send_btn = page.locator('button[data-tab="11"], button[aria-label="Send"], span[data-icon="send"], button:has(span[data-icon="send"]), span[data-icon="wds-ic-send-filled"], button[aria-label*="send" i]').first
             if send_btn.count() > 0 and send_btn.is_visible():
                 send_btn.click()
                 time.sleep(2.0)
                 return {"phone": phone, "status": "Sent", "error": None}
 
             # 3. Alternatively check editable input box and press Enter
-            input_box = page.locator('div[contenteditable="true"][data-tab="10"]').first
+            input_box = page.locator('div[contenteditable="true"]').last
             if input_box.count() > 0 and input_box.is_visible():
                 input_box.focus()
                 page.keyboard.press("Enter")
@@ -305,6 +305,66 @@ def bulk_send_whatsapp(
         context.close()
         
     return results
+
+def send_test_whatsapp_message(
+    phone: str,
+    message: str,
+    default_country_code: str = "880",
+    headless: bool = True,
+    session_dir: str = DEFAULT_SESSION_DIR,
+    progress_callback = None
+) -> dict:
+    """
+    Sends a single test message using the active WhatsApp Web session.
+    """
+    leads = [{
+        "Name": "Test Contact",
+        "Phone": phone,
+        "Category": "Test Business",
+        "Address": "Test Location",
+        "Website": ""
+    }]
+    results = bulk_send_whatsapp(
+        leads=leads,
+        message_template=message,
+        default_country_code=default_country_code,
+        delay_between_messages=1,
+        headless=headless,
+        session_dir=session_dir,
+        progress_callback=progress_callback,
+        use_ai_personalization=False
+    )
+    if results:
+        return results[0]
+    return {"phone": phone, "status": "Failed", "error": "No delivery response returned"}
+
+def parse_manual_numbers(raw_text: str) -> list:
+    """
+    Parses manually pasted/typed numbers into lead records.
+    Supports formats:
+    - 01712345678
+    - 01712345678, Business Name
+    - 01712345678, Business Name, Category, Address
+    """
+    import re
+    lines = [line.strip() for line in raw_text.strip().splitlines() if line.strip()]
+    records = []
+    for line in lines:
+        parts = [p.strip() for p in re.split(r'[,;\t]', line)]
+        if not parts or not parts[0]:
+            continue
+        phone = parts[0]
+        name = parts[1] if len(parts) > 1 and parts[1] else "Business Owner"
+        cat = parts[2] if len(parts) > 2 and parts[2] else "General"
+        addr = parts[3] if len(parts) > 3 and parts[3] else ""
+        records.append({
+            "Name": name,
+            "Phone": phone,
+            "Category": cat,
+            "Address": addr,
+            "Website": ""
+        })
+    return records
 
 def generate_whatsapp_link(phone: str, default_country_code: str = "880") -> str:
     """Generate direct wa.me link for one-click chat."""

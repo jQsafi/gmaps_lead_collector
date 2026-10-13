@@ -9,7 +9,9 @@ from whatsapp_sender import (
     format_whatsapp_number,
     check_login_status,
     launch_whatsapp_login_window,
-    bulk_send_whatsapp
+    bulk_send_whatsapp,
+    send_test_whatsapp_message,
+    parse_manual_numbers
 )
 import database
 import groq_helper
@@ -476,13 +478,18 @@ with tab3:
 
     st.markdown("---")
 
-    # Step 1: Select Leads
-    st.markdown("#### 1️⃣ Select Leads to Message")
+    # Step 1: Select or Add Leads
+    st.markdown("#### 1️⃣ Select or Add Leads to Message")
     has_active_leads = "active_leads_df" in st.session_state and not st.session_state["active_leads_df"].empty
 
     source_option = st.radio(
         "Choose leads source:",
-        options=["Recent Search Results", "From Remote Database", "Upload Excel / CSV File"],
+        options=[
+            "Recent Search Results", 
+            "From Remote Database", 
+            "Upload Excel / CSV File",
+            "✍️ Enter / Paste Numbers Manually"
+        ],
         horizontal=True,
         key="wa_source_radio"
     )
@@ -490,7 +497,7 @@ with tab3:
     wa_leads_df = pd.DataFrame()
     if source_option == "Recent Search Results":
         if has_active_leads:
-            wa_leads_df = st.session_state["active_leads_df"]
+            wa_leads_df = st.session_state["active_leads_df"].copy()
             st.info(f"Loaded **{len(wa_leads_df)} leads** from your latest search session.")
         else:
             st.warning("⚠️ No leads found in current session. Run a search in Tab 1 or Tab 2, or choose another source.")
@@ -498,13 +505,13 @@ with tab3:
         try:
             db_leads = database.fetch_leads_from_db(db_url=st.session_state.get("db_url"), has_phone_only=True)
             if not db_leads.empty:
-                wa_leads_df = db_leads
+                wa_leads_df = db_leads.copy()
                 st.info(f"Loaded **{len(wa_leads_df)} leads** with phone numbers directly from the Remote Database.")
             else:
                 st.warning("Remote Database has no leads with phone numbers yet. Scrape or import leads first.")
         except Exception as dbe:
             st.error(f"Failed to fetch leads from database: {dbe}")
-    else:
+    elif source_option == "Upload Excel / CSV File":
         uploaded_file = st.file_uploader("Upload leads file (.xlsx or .csv)", type=["xlsx", "csv"], key="wa_file_uploader")
         if uploaded_file is not None:
             try:
@@ -515,126 +522,231 @@ with tab3:
                 st.success(f"Loaded **{len(wa_leads_df)} leads** from uploaded file.")
             except Exception as e:
                 st.error(f"Failed to read file: {e}")
+    else:  # Manual entry
+        st.caption("Paste or type numbers below. Formats supported: `01712345678` or `01712345678, Business Name` (one per line).")
+        manual_text = st.text_area(
+            "Enter Phone Numbers:",
+            placeholder="01712345678\n01812345678, ABC Stationery\n+8801912345678, XYZ Superstore",
+            height=130,
+            key="wa_manual_input_area"
+        )
+        if manual_text.strip():
+            parsed_list = parse_manual_numbers(manual_text)
+            if parsed_list:
+                wa_leads_df = pd.DataFrame(parsed_list)
+                st.success(f"Loaded **{len(wa_leads_df)} manual contacts**.")
+            else:
+                st.warning("No valid phone numbers found in input.")
 
+    # Allow appending custom numbers to any chosen source
+    with st.expander("➕ Append Custom Numbers to Current Campaign List", expanded=False):
+        col_app1, col_app2 = st.columns([1.5, 1])
+        with col_app1:
+            append_num = st.text_input("Phone Number to Add:", placeholder="e.g. 01712345678", key="wa_append_num_val")
+        with col_app2:
+            append_nm = st.text_input("Contact / Business Name:", placeholder="e.g. Target Lead", key="wa_append_name_val")
+        if st.button("➕ Add Number", key="btn_wa_append_action"):
+            if append_num.strip():
+                if "wa_custom_appended_leads" not in st.session_state:
+                    st.session_state["wa_custom_appended_leads"] = []
+                st.session_state["wa_custom_appended_leads"].append({
+                    "Name": append_nm.strip() or "Custom Lead",
+                    "Phone": append_num.strip(),
+                    "Category": "Manual Entry",
+                    "Address": "",
+                    "Website": ""
+                })
+                st.success(f"Appended {append_num} to list!")
+                st.rerun()
+
+    # Merge custom appended leads if any
+    if "wa_custom_appended_leads" in st.session_state and st.session_state["wa_custom_appended_leads"]:
+        appended_df = pd.DataFrame(st.session_state["wa_custom_appended_leads"])
+        if wa_leads_df.empty:
+            wa_leads_df = appended_df
+        else:
+            wa_leads_df = pd.concat([wa_leads_df, appended_df], ignore_index=True)
+
+    valid_phone_leads = pd.DataFrame()
     if not wa_leads_df.empty:
-        # Filter leads with phone numbers
         if "Phone" in wa_leads_df.columns:
             valid_phone_leads = wa_leads_df[wa_leads_df["Phone"].astype(str).str.strip().ne("")].copy()
-            show_cols = [c for c in ["Name", "Phone", "Category", "Address"] if c in valid_phone_leads.columns]
-            st.dataframe(valid_phone_leads[show_cols].head(15), width="stretch")
-            st.caption(f"Showing sample preview. Total valid recipient leads: **{len(valid_phone_leads)}**")
+            keep_cols = [c for c in ["Name", "Phone", "Category", "Address", "Website"] if c in valid_phone_leads.columns]
+            valid_phone_leads = valid_phone_leads[keep_cols]
         else:
-            valid_phone_leads = wa_leads_df
-            st.dataframe(valid_phone_leads.head(15), width="stretch")
+            valid_phone_leads = wa_leads_df.copy()
 
-        st.markdown("---")
-        st.markdown("#### 2️⃣ Compose Message & Automation Settings")
+        st.markdown("##### 📝 Campaign Recipients (Editable Table)")
+        st.caption("💡 You can edit names/numbers or click **➕ Add row** at the bottom of the table to add more numbers:")
+        valid_phone_leads = st.data_editor(valid_phone_leads, num_rows="dynamic", use_container_width=True, key="wa_leads_editor")
+        st.caption(f"Total valid recipient leads: **{len(valid_phone_leads)}**")
 
-        # Groq AI Assistant Expander
-        with st.expander("✨ Groq AI Message Copywriter (Powered by Groq)", expanded=False):
-            g_conn, g_msg = groq_helper.test_groq_connection()
-            if g_conn:
-                st.caption("🟢 **Groq API Status**: Active & Connected (`openai/gpt-oss-120b`)")
-            else:
-                st.caption(f"🔴 **Groq API Status**: {g_msg}")
+    st.markdown("---")
+    st.markdown("#### 2️⃣ Compose Message & Automation Settings")
 
-            col_ai1, col_ai2 = st.columns([2, 1])
-            with col_ai1:
-                ai_pitch_offer = st.text_input("Your Service / Offer / Pitch:", value="Exclusive 25% discount on stationery & school supplies", key="ai_pitch_input")
-            with col_ai2:
-                ai_tone = st.selectbox("Tone:", ["Friendly & Professional", "Direct & Concise", "Casual & Warm", "Urgent Promotion"], key="ai_tone_input")
+    # Groq AI Assistant Expander
+    with st.expander("✨ Groq AI Message Copywriter (Powered by Groq)", expanded=False):
+        g_conn, g_msg = groq_helper.test_groq_connection()
+        if g_conn:
+            st.caption("🟢 **Groq API Status**: Active & Connected (`openai/gpt-oss-120b`)")
+        else:
+            st.caption(f"🔴 **Groq API Status**: {g_msg}")
 
-            if st.button("🪄 Generate Cold Pitch with Groq AI", key="btn_gen_ai_pitch"):
-                with st.spinner("Groq AI is crafting your cold pitch..."):
-                    new_tmpl = groq_helper.generate_outreach_template(goal=ai_pitch_offer, tone=ai_tone)
-                    if new_tmpl and not new_tmpl.startswith("Error"):
-                        st.session_state["wa_msg_tmpl"] = new_tmpl
-                        st.success("Pitch generated! Updated template below.")
-                        st.rerun()
-                    else:
-                        st.error(f"Generation error: {new_tmpl}")
+        col_ai1, col_ai2 = st.columns([2, 1])
+        with col_ai1:
+            ai_pitch_offer = st.text_input("Your Service / Offer / Pitch:", value="Exclusive 25% discount on stationery & school supplies", key="ai_pitch_input")
+        with col_ai2:
+            ai_tone = st.selectbox("Tone:", ["Friendly & Professional", "Direct & Concise", "Casual & Warm", "Urgent Promotion"], key="ai_tone_input")
 
-        col_msg, col_settings = st.columns([1.5, 1])
-        with col_msg:
-            default_template = "Hello {Name}, I noticed your business ({Category}) in {Address}. Are you currently accepting new orders/clients?"
-            message_template = st.text_area(
-                "Message Template (Supports dynamic variables):",
-                value=default_template,
-                height=130,
-                key="wa_msg_tmpl"
-            )
-            st.caption("💡 Supported variables: `{Name}`, `{Phone}`, `{Category}`, `{Address}`, `{Website}`")
+        if st.button("🪄 Generate Cold Pitch with Groq AI", key="btn_gen_ai_pitch"):
+            with st.spinner("Groq AI is crafting your cold pitch..."):
+                new_tmpl = groq_helper.generate_outreach_template(goal=ai_pitch_offer, tone=ai_tone)
+                if new_tmpl and not new_tmpl.startswith("Error"):
+                    st.session_state["wa_msg_tmpl"] = new_tmpl
+                    st.success("Pitch generated! Updated template below.")
+                    st.rerun()
+                else:
+                    st.error(f"Generation error: {new_tmpl}")
 
-        with col_settings:
-            country_code = st.text_input("Default Country Code (without +):", value="880", help="e.g. 880 for Bangladesh, 1 for USA, 44 for UK", key="wa_cc")
-            delay = st.slider("Safety Delay Between Messages (seconds):", min_value=5, max_value=30, value=8, help="Recommended to prevent WhatsApp spam flags", key="wa_delay")
-            use_ai_personalize = st.checkbox("🤖 Groq 1-to-1 Personalization", value=False, help="Use Groq to generate a unique personalized message for each individual business based on their name, category, and location", key="wa_use_ai")
-            show_wa_browser = st.checkbox("👁️ Open Visible WhatsApp Browser", value=False, help="Open external browser window (unchecked runs in background headless mode)", key="wa_watch_browser")
+    col_msg, col_settings = st.columns([1.5, 1])
+    with col_msg:
+        default_template = "Hello {Name}, I noticed your business ({Category}) in {Address}. Are you currently accepting new orders/clients?"
+        message_template = st.text_area(
+            "Message Template (Supports dynamic variables):",
+            value=default_template,
+            height=130,
+            key="wa_msg_tmpl"
+        )
+        st.caption("💡 Supported variables: `{Name}`, `{Phone}`, `{Category}`, `{Address}`, `{Website}`")
 
-        start_campaign = st.button("🚀 Start Automated WhatsApp Campaign", key="btn_start_wa", type="primary", use_container_width=True)
+    with col_settings:
+        country_code = st.text_input("Default Country Code (without +):", value="880", help="e.g. 880 for Bangladesh, 1 for USA, 44 for UK", key="wa_cc")
+        delay = st.slider("Safety Delay Between Messages (seconds):", min_value=5, max_value=30, value=8, help="Recommended to prevent WhatsApp spam flags", key="wa_delay")
+        use_ai_personalize = st.checkbox("🤖 Groq 1-to-1 Personalization", value=False, help="Use Groq to generate a unique personalized message for each individual business based on their name, category, and location", key="wa_use_ai")
+        show_wa_browser = st.checkbox("👁️ Open Visible WhatsApp Browser", value=False, help="Open external browser window (unchecked runs in background headless mode)", key="wa_watch_browser")
 
-        if start_campaign:
-            if not check_login_status():
-                st.error("⚠️ WhatsApp Web is not logged in! Please click '🔑 Connect / Scan QR Code' above first.")
-            elif valid_phone_leads.empty:
-                st.error("⚠️ No leads with valid phone numbers available.")
-            else:
-                col_wa_l, col_wa_r = st.columns([1.2, 1])
-                with col_wa_l:
-                    wa_progress = st.progress(0)
-                    wa_status = st.empty()
-                    wa_log_placeholder = st.empty()
-                with col_wa_r:
-                    wa_screen_placeholder = st.empty()
+    # Test Message Block
+    st.markdown("---")
+    st.markdown("#### 🧪 Test Message Verification")
+    st.caption("Send a real test message to your personal WhatsApp to preview how it renders before launching the full campaign.")
+
+    col_test1, col_test2 = st.columns([1.5, 1])
+    with col_test1:
+        test_number = st.text_input(
+            "Recipient Phone Number for Test Message:",
+            placeholder="e.g. 01712345678 or +8801712345678",
+            key="wa_test_phone_num"
+        )
+    with col_test2:
+        test_name = st.text_input(
+            "Contact Name (replaces {Name}):",
+            value="Test Recipient",
+            key="wa_test_contact_name"
+        )
+
+    test_rendered_msg = message_template.replace("{Name}", test_name or "Test Recipient")
+    test_rendered_msg = test_rendered_msg.replace("{Phone}", test_number or "01712345678")
+    test_rendered_msg = test_rendered_msg.replace("{Category}", "Test Business")
+    test_rendered_msg = test_rendered_msg.replace("{Address}", "Dhaka, Bangladesh")
+    test_rendered_msg = test_rendered_msg.replace("{Website}", "example.com")
+
+    with st.expander("👁️ Preview Rendered Test Message", expanded=False):
+        st.info(test_rendered_msg)
+
+    test_msg_status_box = st.empty()
+    test_preview_box = st.empty()
+
+    if st.button("📲 Send Test WhatsApp Message", key="btn_send_test_message", use_container_width=True):
+        if not is_logged_in:
+            st.error("⚠️ WhatsApp Web session is not active! Please scan QR code in the Connect section above first.")
+        elif not test_number.strip():
+            st.warning("⚠️ Please enter a recipient phone number for the test message.")
+        else:
+            with st.spinner(f"Sending test WhatsApp message to {test_number}..."):
+                def test_stream_cb(cur, tot, lead, res_dict, screenshot=None):
+                    if screenshot is not None:
+                        with test_preview_box.container():
+                            st.image(screenshot, caption="Test Message Live Browser Preview", width=420)
+
+                test_res = send_test_whatsapp_message(
+                    phone=test_number.strip(),
+                    message=test_rendered_msg,
+                    default_country_code=country_code,
+                    headless=not show_wa_browser,
+                    progress_callback=test_stream_cb
+                )
+
+                if test_res.get("status") == "Sent":
+                    test_msg_status_box.success(f"🎉 Test message sent successfully to **{test_res.get('phone')}**! Verify it on your WhatsApp.")
+                else:
+                    test_msg_status_box.error(f"❌ Failed to send test message: {test_res.get('error', 'Unknown error')} (Status: {test_res.get('status')})")
+
+    st.markdown("---")
+    st.markdown("#### 3️⃣ Launch Automated Bulk Campaign")
+    start_campaign = st.button("🚀 Start Automated WhatsApp Campaign", key="btn_start_wa", type="primary", use_container_width=True)
+
+    if start_campaign:
+        if not is_logged_in:
+            st.error("⚠️ WhatsApp Web is not logged in! Please click '🔑 Connect / Scan QR Code' above first.")
+        elif valid_phone_leads.empty:
+            st.error("⚠️ No leads with valid phone numbers available. Add or select leads above.")
+        else:
+            col_wa_l, col_wa_r = st.columns([1.2, 1])
+            with col_wa_l:
+                wa_progress = st.progress(0)
+                wa_status = st.empty()
+                wa_log_placeholder = st.empty()
+            with col_wa_r:
+                wa_screen_placeholder = st.empty()
+                with wa_screen_placeholder.container():
+                    st.markdown("### 🖥️ WhatsApp Live Stream `🔴 LIVE`")
+                    st.info("WhatsApp automation starting...")
+
+            delivery_records = []
+
+            def wa_callback(current, total, lead, res_dict, screenshot=None):
+                pct = min(1.0, current / total) if total > 0 else 0
+                wa_progress.progress(pct)
+                status_text_msg = res_dict.get("status", "")
+                lead_name = lead.get("Name", "") if lead else ""
+                phone_val = res_dict.get("phone", "")
+                wa_status.markdown(f"**[{current}/{total}]** Sending to **{lead_name}** ({phone_val}): `{status_text_msg}`")
+
+                if res_dict and lead:
+                    record_entry = {
+                        "Name": lead_name,
+                        "Phone": phone_val,
+                        "Status": status_text_msg,
+                        "Error": res_dict.get("error") or "None"
+                    }
+                    delivery_records.append(record_entry)
+                    with wa_log_placeholder.container():
+                        st.markdown(f"### 📋 Message Delivery Log ({len(delivery_records)} processed)")
+                        st.dataframe(pd.DataFrame(delivery_records), width="stretch")
+
+                if screenshot is not None:
                     with wa_screen_placeholder.container():
                         st.markdown("### 🖥️ WhatsApp Live Stream `🔴 LIVE`")
-                        st.info("WhatsApp automation starting...")
+                        st.image(screenshot, caption=f"Action: {status_text_msg}", use_container_width=True)
 
-                delivery_records = []
-
-                def wa_callback(current, total, lead, res_dict, screenshot=None):
-                    pct = min(1.0, current / total) if total > 0 else 0
-                    wa_progress.progress(pct)
-                    status_text_msg = res_dict.get("status", "")
-                    lead_name = lead.get("Name", "") if lead else ""
-                    phone_val = res_dict.get("phone", "")
-                    wa_status.markdown(f"**[{current}/{total}]** Sending to **{lead_name}** ({phone_val}): `{status_text_msg}`")
-
-                    if res_dict and lead:
-                        record_entry = {
-                            "Name": lead_name,
-                            "Phone": phone_val,
-                            "Status": status_text_msg,
-                            "Error": res_dict.get("error") or "None"
-                        }
-                        delivery_records.append(record_entry)
-                        with wa_log_placeholder.container():
-                            st.markdown(f"### 📋 Message Delivery Log ({len(delivery_records)} processed)")
-                            st.dataframe(pd.DataFrame(delivery_records), width="stretch")
-
-                    if screenshot is not None:
-                        with wa_screen_placeholder.container():
-                            st.markdown("### 🖥️ WhatsApp Live Stream `🔴 LIVE`")
-                            st.image(screenshot, caption=f"Action: {status_text_msg}", use_container_width=True)
-
-                leads_list = valid_phone_leads.to_dict("records")
-                try:
-                    results = bulk_send_whatsapp(
-                        leads=leads_list,
-                        message_template=message_template,
-                        default_country_code=country_code,
-                        delay_between_messages=delay,
-                        headless=not show_wa_browser,
-                        progress_callback=wa_callback,
-                        use_ai_personalization=use_ai_personalize,
-                        ai_offer=message_template
-                    )
-                    st.success(f"🎉 WhatsApp Campaign Completed! Processed {len(results)} leads.")
-                    with wa_screen_placeholder.container():
-                        st.markdown("### 🖥️ WhatsApp Stream `✅ Complete`")
-                        st.success("All messages sent!")
-                except Exception as err:
-                    st.error(f"WhatsApp automation error: {str(err)}")
+            leads_list = valid_phone_leads.to_dict("records")
+            try:
+                results = bulk_send_whatsapp(
+                    leads=leads_list,
+                    message_template=message_template,
+                    default_country_code=country_code,
+                    delay_between_messages=delay,
+                    headless=not show_wa_browser,
+                    progress_callback=wa_callback,
+                    use_ai_personalization=use_ai_personalize,
+                    ai_offer=message_template
+                )
+                st.success(f"🎉 WhatsApp Campaign Completed! Processed {len(results)} leads.")
+                with wa_screen_placeholder.container():
+                    st.markdown("### 🖥️ WhatsApp Stream `✅ Complete`")
+                    st.success("All messages sent!")
+            except Exception as err:
+                st.error(f"WhatsApp automation error: {str(err)}")
 
 with tab4:
     st.markdown("### 🗄️ Remote Database & Permanent Lead Archive")
