@@ -6,6 +6,10 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 DEFAULT_SESSION_DIR = os.path.abspath("./whatsapp_session")
+DEFAULT_CHROME_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+)
 
 def format_whatsapp_number(phone: str, default_country_code: str = "880") -> str:
     """Format phone number with country code for WhatsApp Web."""
@@ -59,13 +63,20 @@ def launch_whatsapp_login_window(
         context = p.chromium.launch_persistent_context(
             user_data_dir=session_dir,
             headless=headless,
-            viewport={"width": 1100, "height": 800},
+            viewport={"width": 1280, "height": 900},
+            user_agent=DEFAULT_CHROME_UA,
+            ignore_default_args=["--enable-automation"],
             args=[
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled"
             ]
         )
+        context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
         page = context.pages[0] if context.pages else context.new_page()
         page.goto("https://web.whatsapp.com/", wait_until="domcontentloaded")
         
@@ -92,7 +103,12 @@ def launch_whatsapp_login_window(
             # Capture QR code screenshot for Streamlit cloud users
             if qr_callback:
                 try:
-                    shot = page.screenshot(type="jpeg", quality=60)
+                    # Prefer zooming in on the QR container if found, else full page screenshot
+                    qr_el = page.locator('div[data-ref], canvas').first
+                    if qr_el.count() > 0 and qr_el.is_visible():
+                        shot = qr_el.screenshot(type="jpeg", quality=80)
+                    else:
+                        shot = page.screenshot(type="jpeg", quality=60)
                     qr_callback(shot, "Please scan the QR code with WhatsApp on your phone")
                 except Exception:
                     pass
@@ -184,13 +200,20 @@ def bulk_send_whatsapp(
         context = p.chromium.launch_persistent_context(
             user_data_dir=session_dir,
             headless=headless,
-            viewport={"width": 1200, "height": 800},
+            viewport={"width": 1280, "height": 900},
+            user_agent=DEFAULT_CHROME_UA,
+            ignore_default_args=["--enable-automation"],
             args=[
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled"
             ]
         )
+        context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
         page = context.pages[0] if context.pages else context.new_page()
         
         # Navigate to WhatsApp Web first to check session readiness
@@ -201,7 +224,7 @@ def bulk_send_whatsapp(
         time.sleep(4)
         
         # Check if login is needed
-        qr_canvas = page.locator('canvas[aria-label="Scan me!"]').first
+        qr_canvas = page.locator('canvas, div[data-ref]').first
         if qr_canvas.count() > 0 and qr_canvas.is_visible():
             context.close()
             raise RuntimeError("WhatsApp Web is not logged in. Please scan the QR code first via the Login button.")
