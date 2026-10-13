@@ -24,11 +24,11 @@ def get_groq_client(api_key: Optional[str] = None) -> Groq:
     """Initialize Groq client with API key."""
     key = get_groq_api_key(api_key)
     if not key:
-        raise ValueError("Groq API Key is not set. Please provide it or set GROQ_API_KEY in .env.")
+        raise ValueError("AI API Key is not set. Please provide it or set GROQ_API_KEY in .env.")
     return Groq(api_key=key)
 
 def test_groq_connection(api_key: Optional[str] = None) -> Tuple[bool, str]:
-    """Test Groq API connectivity and authentication."""
+    """Test AI API connectivity and authentication."""
     try:
         client = get_groq_client(api_key)
         resp = client.chat.completions.create(
@@ -36,9 +36,9 @@ def test_groq_connection(api_key: Optional[str] = None) -> Tuple[bool, str]:
             messages=[{"role": "user", "content": "Respond with 'OK' only."}],
             max_tokens=10
         )
-        return True, "Groq API connected successfully!"
+        return True, "AI Engine connected successfully!"
     except Exception as e:
-        return False, f"Groq API connection error: {str(e)}"
+        return False, f"AI Engine connection error: {str(e)}"
 
 def generate_outreach_template(
     goal: str, 

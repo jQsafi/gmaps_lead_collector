@@ -34,7 +34,36 @@ def ensure_playwright_browsers():
 
 ensure_playwright_browsers()
 
+def inject_gtm_into_index_html():
+    """Inject Google Tag Manager directly into Streamlit's static index.html template."""
+    try:
+        from pathlib import Path
+        index_file = Path(st.__file__).parent / "static" / "index.html"
+        if index_file.exists():
+            html_text = index_file.read_text(encoding="utf-8")
+            gtm_id = "GTM-W7P72R2N"
+            if gtm_id not in html_text:
+                gtm_head_code = f"""<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){{w[l]=w[l]||[];w[l].push({{'gtm.start':
+new Date().getTime(),event:'gtm.js'}});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+}})(window,document,'script','dataLayer','{gtm_id}');</script>
+<!-- End Google Tag Manager -->
+</head>"""
+                gtm_body_code = f"""<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id={gtm_id}"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<div id="root">"""
+                if "</head>" in html_text and '<div id="root">' in html_text:
+                    html_text = html_text.replace("</head>", gtm_head_code, 1)
+                    html_text = html_text.replace('<div id="root">', gtm_body_code, 1)
+                    index_file.write_text(html_text, encoding="utf-8")
+    except Exception:
+        pass
 
+inject_gtm_into_index_html()
 
 st.set_page_config(
     page_title="Google Maps Lead & Phone Collector",
@@ -42,39 +71,734 @@ st.set_page_config(
     layout="wide"
 )
 
+# Active GTM Runtime Injector
+import streamlit.components.v1 as components
+components.html(
+    """
+    <script>
+    (function() {
+        try {
+            var targetWin = window.parent || window;
+            var targetDoc = targetWin.document || document;
+            if (!targetWin.dataLayer) {
+                targetWin.dataLayer = [];
+            }
+            if (!targetWin._gtm_loaded) {
+                targetWin._gtm_loaded = true;
+                (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+                new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+                j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+                'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+                })(targetWin, targetDoc, 'script', 'dataLayer', 'GTM-W7P72R2N');
+            }
+        } catch(e) {
+            (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+            new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+            j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+            'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+            })(window,document,'script','dataLayer','GTM-W7P72R2N');
+        }
+    })();
+    </script>
+    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-W7P72R2N"
+    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+    """,
+    height=0,
+    width=0
+)
+
 if "db_url" not in st.session_state:
     st.session_state["db_url"] = database.normalize_db_url()
 
-# Custom CSS for styling
+# Custom CSS Design System
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #1E3A8A;
-        margin-bottom: 0.2rem;
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+
+html, body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Restore and force Material Icons for Streamlit system icons */
+[data-testid="stIconMaterial"],
+[data-testid*="stIcon"],
+[data-testid="stSidebarCollapseButton"] *,
+button[kind="header"] *,
+[class*="material-symbols"],
+[class*="material-icons"],
+.material-symbols-rounded,
+.material-symbols-outlined,
+.material-icons {
+    font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
+    font-feature-settings: 'liga' !important;
+    -webkit-font-feature-settings: 'liga' !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    word-wrap: normal !important;
+    white-space: nowrap !important;
+    direction: ltr !important;
+}
+
+/* Apply Plus Jakarta Sans to standard text containers without affecting icon fonts */
+.main, .stMarkdown, .stText, p, h1, h2, h3, h4, h5, h6, input, textarea, select, label, .stMetric {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+
+/* Hero Section */
+.hero-wrapper {
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.07) 0%, rgba(6, 182, 212, 0.05) 50%, rgba(99, 102, 241, 0.06) 100%);
+    border: 1px solid rgba(226, 232, 240, 0.85);
+    border-radius: 20px;
+    padding: 2.2rem 2.4rem 1.8rem 2.4rem;
+    margin-bottom: 1.8rem;
+    position: relative;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.04);
+}
+
+.hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.12) 0%, rgba(6, 182, 212, 0.12) 100%);
+    color: #2563EB;
+    border: 1px solid rgba(37, 99, 235, 0.25);
+    border-radius: 9999px;
+    padding: 0.35rem 0.9rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 0.85rem;
+}
+
+.hero-title {
+    font-size: 2.4rem;
+    font-weight: 800;
+    line-height: 1.15;
+    background: linear-gradient(135deg, #0F172A 0%, #1E40AF 45%, #2563EB 80%, #06B6D4 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.5rem;
+}
+
+.hero-subtitle {
+    font-size: 1.02rem;
+    color: #475569;
+    max-width: 860px;
+    line-height: 1.6;
+    margin-bottom: 1.2rem;
+}
+
+.feature-ribbon {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 12px;
+    margin-top: 1rem;
+}
+
+.feature-pill {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(226, 232, 240, 0.95);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: #1E293B;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+}
+
+.feature-pill:hover {
+    transform: translateY(-2px);
+    border-color: #93C5FD;
+    box-shadow: 0 6px 18px -2px rgba(37, 99, 235, 0.12);
+}
+
+.feature-pill-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+/* Streamlit Tabs Modern Segmented Control */
+div[data-baseweb="tab-list"] {
+    background: #F1F5F9;
+    border-radius: 14px;
+    padding: 5px;
+    gap: 6px;
+    border: 1px solid #E2E8F0;
+    margin-bottom: 1.6rem;
+}
+
+div[data-baseweb="tab-list"] button {
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    font-size: 0.92rem !important;
+    color: #64748B !important;
+    padding: 0.55rem 1.1rem !important;
+    border: none !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+div[data-baseweb="tab-list"] button:hover {
+    color: #0F172A !important;
+    background: rgba(255, 255, 255, 0.7) !important;
+}
+
+div[data-baseweb="tab-list"] button[aria-selected="true"] {
+    background: #FFFFFF !important;
+    color: #2563EB !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+}
+
+div[data-baseweb="tab-highlight"] {
+    display: none !important;
+}
+
+/* Primary Button Styling */
+button[kind="primary"] {
+    background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
+    color: #FFFFFF !important;
+    font-weight: 700 !important;
+    font-size: 0.95rem !important;
+    border-radius: 10px !important;
+    border: none !important;
+    padding: 0.75rem 1.5rem !important;
+    box-shadow: 0 6px 18px -3px rgba(37, 99, 235, 0.35) !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+button[kind="primary"]:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 10px 24px -4px rgba(37, 99, 235, 0.45) !important;
+    filter: brightness(1.04) !important;
+}
+
+button[kind="primary"]:active {
+    transform: translateY(0px) !important;
+}
+
+/* Secondary Button Styling */
+button[kind="secondary"] {
+    border-radius: 9px !important;
+    font-weight: 600 !important;
+    border: 1px solid #CBD5E1 !important;
+    background: #FFFFFF !important;
+    transition: all 0.2s ease !important;
+}
+
+button[kind="secondary"]:hover {
+    border-color: #2563EB !important;
+    color: #2563EB !important;
+    background: #EFF6FF !important;
+}
+
+/* Live Simulation Browser Window Mock */
+.browser-window-frame {
+    background: #0F172A;
+    border-radius: 14px 14px 0 0;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.browser-window-dots {
+    display: flex;
+    gap: 6px;
+}
+
+.window-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.dot-red { background: #EF4444; }
+.dot-yellow { background: #F59E0B; }
+.dot-green { background: #10B981; }
+
+.browser-window-title {
+    color: #94A3B8;
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+}
+
+.live-badge {
+    background: rgba(239, 68, 68, 0.2);
+    color: #EF4444;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    animation: pulse-live 2s infinite;
+}
+
+@keyframes pulse-live {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
+/* Reusable Badges */
+.pill-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 11px;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.pill-primary {
+    background: #EFF6FF;
+    color: #1D4ED8;
+    border: 1px solid #BFDBFE;
+}
+
+.pill-success {
+    background: #ECFDF5;
+    color: #047857;
+    border: 1px solid #A7F3D0;
+}
+
+/* Section Header Bar */
+.tab-header-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 0.6rem;
+}
+
+.tab-header-card h3 {
+    margin: 0 !important;
+    font-size: 1.45rem !important;
+    font-weight: 700 !important;
+    color: #0F172A !important;
+}
+
+/* Dark mode adaptability */
+@media (prefers-color-scheme: dark) {
+    .hero-wrapper {
+        background: linear-gradient(135deg, rgba(30, 58, 138, 0.22) 0%, rgba(6, 182, 212, 0.12) 50%, rgba(99, 102, 241, 0.18) 100%);
+        border-color: rgba(255, 255, 255, 0.12);
     }
-    .sub-text {
-        font-size: 1rem;
-        color: #4B5563;
-        margin-bottom: 1.5rem;
+    .hero-title {
+        background: linear-gradient(135deg, #F8FAFC 0%, #93C5FD 50%, #38BDF8 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
-    button[kind="primary"] {
-        background-color: #2563EB !important;
-        color: white !important;
-        font-weight: 600 !important;
-        border-radius: 8px !important;
-        height: 3rem !important;
+    .hero-subtitle {
+        color: #CBD5E1;
     }
-    button[kind="secondary"] {
-        border-radius: 6px !important;
-        font-size: 0.85rem !important;
+    .feature-pill {
+        background: rgba(30, 41, 59, 0.85);
+        border-color: rgba(255, 255, 255, 0.1);
+        color: #F1F5F9;
     }
+    div[data-baseweb="tab-list"] {
+        background: #1E293B;
+        border-color: #334155;
+    }
+    div[data-baseweb="tab-list"] button[aria-selected="true"] {
+        background: #0F172A !important;
+        color: #60A5FA !important;
+    }
+    .tab-header-card h3 {
+        color: #F8FAFC !important;
+    }
+    .custom-navbar {
+        background: rgba(15, 23, 42, 0.85);
+        border-color: rgba(255, 255, 255, 0.1);
+    }
+    .brand-title-text {
+        color: #F8FAFC;
+    }
+    .brand-sub-text {
+        color: #94A3B8;
+    }
+    .nav-status-chip {
+        background: #1E293B;
+        border-color: #334155;
+        color: #CBD5E1;
+    }
+    .nav-profile-link {
+        background: rgba(37, 99, 235, 0.2);
+        color: #93C5FD;
+        border-color: rgba(147, 197, 253, 0.3);
+    }
+    .nav-profile-link:hover {
+        background: #2563EB;
+        color: #FFFFFF !important;
+    }
+}
+
+/* Clean Streamlit Default Chrome */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+header[data-testid="stHeader"] {
+    background: transparent !important;
+}
+.block-container {
+    padding-top: 1.25rem !important;
+    padding-bottom: 3.5rem !important;
+}
+
+/* Make Left Sidebar completely unscrollable & ultra-compact */
+section[data-testid="stSidebar"] {
+    overflow: hidden !important;
+}
+
+section[data-testid="stSidebar"] > div:first-child {
+    overflow: hidden !important;
+    padding: 0.85rem 0.9rem !important;
+    height: 100% !important;
+}
+
+.sidebar-status-box {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 9px;
+    padding: 7px 9px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 5px;
+    margin-bottom: 0.65rem;
+}
+
+.sidebar-status-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    color: #334155;
+    white-space: nowrap;
+}
+
+.status-indicator-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dot-online {
+    background: #10B981;
+    box-shadow: 0 0 4px rgba(16, 185, 129, 0.4);
+}
+
+.dot-idle {
+    background: #94A3B8;
+}
+
+@media (prefers-color-scheme: dark) {
+    .sidebar-status-box {
+        background: #1E293B;
+        border-color: #334155;
+    }
+    .sidebar-status-item {
+        color: #CBD5E1;
+    }
+}
+
+/* Fixed Ultra-Compact Bottom Footer */
+.fixed-compact-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(226, 232, 240, 0.95);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1.5rem;
+    font-size: 0.74rem;
+    color: #64748B;
+    z-index: 99999;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.02);
+    box-sizing: border-box;
+}
+
+.fixed-compact-footer a {
+    color: #2563EB;
+    font-weight: 600;
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.fixed-compact-footer a:hover {
+    color: #1D4ED8;
+    text-decoration: underline;
+}
+
+@media (prefers-color-scheme: dark) {
+    .fixed-compact-footer {
+        background: rgba(15, 23, 42, 0.94);
+        border-top-color: rgba(255, 255, 255, 0.08);
+        color: #94A3B8;
+        box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
+    }
+    .fixed-compact-footer a {
+        color: #60A5FA;
+    }
+}
+
+/* Custom Top Navigation Bar */
+.custom-navbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 1.4rem;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(226, 232, 240, 0.95);
+    border-radius: 16px;
+    margin-bottom: 1.3rem;
+    box-shadow: 0 4px 18px -2px rgba(0, 0, 0, 0.03);
+}
+
+.nav-brand-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-title-text {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #0F172A;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    line-height: 1.2;
+}
+
+.brand-badge {
+    background: linear-gradient(135deg, #2563EB 0%, #06B6D4 100%);
+    color: #FFFFFF;
+    font-size: 0.65rem;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 6px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.brand-sub-text {
+    font-size: 0.76rem;
+    color: #64748B;
+    font-weight: 500;
+}
+
+.nav-actions-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.nav-status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #334155;
+}
+
+.nav-profile-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 13px;
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(6, 182, 212, 0.08) 100%);
+    border: 1px solid rgba(37, 99, 235, 0.22);
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #2563EB;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.nav-profile-link:hover {
+    background: #2563EB;
+    color: #FFFFFF !important;
+    border-color: #2563EB;
+    text-decoration: none;
+}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header">📍 Google Maps Lead & Phone Collector</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-text">Extract business names, phone numbers, ratings, addresses, and websites directly from Google Maps into Excel / CSV / Remote Database.</div>', unsafe_allow_html=True)
+# Vector Brand Logo (Radar + Map Pin)
+GH_LOGO_SVG = """<svg width="38" height="38" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="48" height="48" rx="12" fill="url(#gh-grad)"/>
+  <circle cx="24" cy="21" r="14" stroke="white" stroke-opacity="0.25" stroke-width="2" stroke-dasharray="3 3"/>
+  <circle cx="24" cy="21" r="9" stroke="white" stroke-opacity="0.4" stroke-width="1.8"/>
+  <path d="M24 9C18.477 9 14 13.477 14 19C14 25.5 24 37 24 37C24 37 34 25.5 34 19C34 13.477 29.523 9 24 9Z" fill="white"/>
+  <circle cx="24" cy="19" r="4.5" fill="url(#gh-grad-center)"/>
+  <defs>
+    <linearGradient id="gh-grad" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E40AF"/>
+      <stop offset="0.5" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+    <linearGradient id="gh-grad-center" x1="19.5" y1="14.5" x2="28.5" y2="23.5" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E40AF"/>
+      <stop offset="1" stop-color="#0284C7"/>
+    </linearGradient>
+  </defs>
+</svg>"""
+
+# Dynamic connectivity status
+is_wa_nav_ok = st.session_state.get("whatsapp_logged_in", False) or check_login_status()
+wa_badge_html = '<span style="color:#10B981; font-weight:bold;">●</span> WhatsApp Active' if is_wa_nav_ok else '<span style="color:#94A3B8;">○</span> WhatsApp Idle'
+db_badge_html = '<span style="color:#10B981; font-weight:bold;">●</span> Database Synced'
+
+# Branded Sidebar (Unscrollable & Ultra-Compact)
+with st.sidebar:
+    wa_dot = '<span class="status-indicator-dot dot-online"></span>' if is_wa_nav_ok else '<span class="status-indicator-dot dot-idle"></span>'
+    wa_text = "WhatsApp: <strong>Active</strong>" if is_wa_nav_ok else "WhatsApp: <strong>Idle</strong>"
+    leads_in_mem = len(st.session_state.get("active_leads_df", []))
+
+    sidebar_html = f"""<div style="padding: 0; margin: 0;">
+<div style="display:flex; align-items:center; gap:9px; margin-bottom: 0.6rem;">
+{GH_LOGO_SVG}
+<div>
+<div style="font-size:1.05rem; font-weight:800; color:#0F172A; line-height:1.2;">GeoHunter <span style="font-size:0.6rem; background:linear-gradient(135deg, #2563EB, #06B6D4); color:#fff; padding:1px 5px; border-radius:4px;">PRO</span></div>
+<div style="font-size:0.7rem; color:#64748B;">v2.5 Enterprise</div>
+</div>
+</div>
+<div style="font-size:0.68rem; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:3px;">⚡ System Health</div>
+<div class="sidebar-status-box">
+<div class="sidebar-status-item">{wa_dot}<span>{wa_text}</span></div>
+<div class="sidebar-status-item"><span class="status-indicator-dot dot-online"></span><span>Database: <strong>Online</strong></span></div>
+<div class="sidebar-status-item"><span class="status-indicator-dot dot-online"></span><span>AI Core: <strong>Ready</strong></span></div>
+<div class="sidebar-status-item"><span class="status-indicator-dot dot-online"></span><span>Browser: <strong>Ready</strong></span></div>
+</div>
+<div style="display:flex; align-items:center; justify-content:space-between; background:rgba(37,99,235,0.06); border:1px solid rgba(37,99,235,0.18); border-radius:8px; padding:5px 9px; margin-bottom:0.6rem;">
+<span style="font-size:0.73rem; color:#1E40AF; font-weight:600;">📊 Cached Leads</span>
+<span style="font-size:0.85rem; color:#1E40AF; font-weight:800;">{leads_in_mem:,}</span>
+</div>
+<div style="border-top:1px solid #E2E8F0; padding-top:6px; font-size:0.7rem; color:#64748B; line-height:1.4;">
+<div><strong>Shafayat Hossain</strong> &bull; <a href="https://jqsafi.github.io/" target="_blank" style="color:#2563EB; text-decoration:none; font-weight:600;">Portfolio ↗</a></div>
+<div style="font-size:0.64rem; opacity:0.8;">© 2026 All rights reserved</div>
+</div>
+</div>"""
+    st.markdown(sidebar_html, unsafe_allow_html=True)
+
+# Top Navigation Bar
+st.markdown(f"""
+<div class="custom-navbar">
+    <div class="nav-brand-group">
+        {GH_LOGO_SVG}
+        <div>
+            <div class="brand-title-text">
+                GeoHunter <span class="brand-badge">PRO v2.5</span>
+            </div>
+            <div class="brand-sub-text">Google Maps B2B Lead Intelligence & WhatsApp Outreach Engine</div>
+        </div>
+    </div>
+    <div class="nav-actions-group">
+        <div class="nav-status-chip">{wa_badge_html}</div>
+        <div class="nav-status-chip">{db_badge_html}</div>
+        <a href="https://jqsafi.github.io/" target="_blank" class="nav-profile-link">
+            <span>Shafayat Hossain</span>
+            <span style="font-size:0.8rem;">↗</span>
+        </a>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Hero Banner
+st.markdown("""
+<div class="hero-wrapper">
+    <div class="hero-badge">
+        <span>⚡ GeoHunter Pro Enterprise Suite v2.5</span>
+    </div>
+    <div class="hero-title">
+        📍 Google Maps Lead & Outreach Engine
+    </div>
+    <div class="hero-subtitle">
+        High-velocity local B2B lead generation with automated phone extraction, AI sales copywriting, and direct WhatsApp Web messaging campaigns.
+    </div>
+    <div class="feature-ribbon">
+        <div class="feature-pill">
+            <span class="feature-pill-icon">📍</span>
+            <div><strong>Precision Scraping</strong><br><span style="font-size:0.75rem;opacity:0.8;">Phones, Websites, Ratings & Addresses</span></div>
+        </div>
+        <div class="feature-pill">
+            <span class="feature-pill-icon">🧠</span>
+            <div><strong>AI Sales Strategist</strong><br><span style="font-size:0.75rem;opacity:0.8;">B2B Target Buyer & High-Intent Queries</span></div>
+        </div>
+        <div class="feature-pill">
+            <span class="feature-pill-icon">💬</span>
+            <div><strong>WhatsApp Campaign</strong><br><span style="font-size:0.75rem;opacity:0.8;">1-Click QR Session + Media Attachments</span></div>
+        </div>
+        <div class="feature-pill">
+            <span class="feature-pill-icon">🗄️</span>
+            <div><strong>Cloud Database Vault</strong><br><span style="font-size:0.75rem;opacity:0.8;">Supabase, PostgreSQL, Neon & SQLite Sync</span></div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Helper function for live simulation header
+def get_browser_window_frame(title_sub: str = "Chromium Live Session"):
+    return f"""
+    <div class="browser-window-frame">
+        <div class="browser-window-dots">
+            <div class="window-dot dot-red"></div>
+            <div class="window-dot dot-yellow"></div>
+            <div class="window-dot dot-green"></div>
+        </div>
+        <div class="browser-window-title">playwright://chromium &bull; {title_sub}</div>
+        <div class="live-badge">● LIVE</div>
+    </div>
+    """
+
+# Helper function to render 4-col metric cards
+def render_leads_metric_summary(df: pd.DataFrame):
+    if df is None or df.empty:
+        return
+    m1, m2, m3, m4 = st.columns(4)
+    total_leads = len(df)
+    phones_count = len(df[df["Phone"].astype(str).str.strip().ne("")]) if "Phone" in df.columns else 0
+    web_count = len(df[df["Website"].astype(str).str.strip().ne("")]) if "Website" in df.columns else 0
+    phone_rate = f"{(phones_count / total_leads * 100):.0f}%" if total_leads > 0 else "0%"
+    
+    with m1:
+        st.metric("Total Extracted", f"{total_leads:,}")
+    with m2:
+        st.metric("Phone Numbers", f"{phones_count:,}", delta=phone_rate)
+    with m3:
+        st.metric("Websites", f"{web_count:,}")
+    with m4:
+        st.metric("Phone Coverage", phone_rate)
 
 # Tabs: AI Sales Strategist vs Single Search vs Batch Search vs WhatsApp Automation vs Remote Database
 tab_ai, tab1, tab2, tab3, tab4 = st.tabs([
@@ -86,30 +810,46 @@ tab_ai, tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 with tab_ai:
-    st.markdown("### 💡 AI Sales Strategist & Query Generator `(Powered by Groq)`")
-    st.markdown("Describe what product or service you want to sell and your target location. Groq AI will analyze your target market, determine the best commercial client business types, generate high-intent Google Maps search queries, and craft a winning B2B sales outreach strategy.")
+    st.markdown("""
+    <div class="tab-header-card">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:1.6rem;">💡</span>
+            <div>
+                <h3 style="margin:0; font-size:1.35rem; font-weight:700;">AI Sales Strategist & Query Generator</h3>
+                <span style="font-size:0.83rem; color:#64748B;">Neural AI powered market analysis, target buyer profiling, and high-intent query generation</span>
+            </div>
+        </div>
+        <span class="pill-badge pill-primary">⚡ Enterprise AI Strategist</span>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("Describe what product or service you want to sell and your target location. Proprietary AI will analyze your target market, determine the best commercial client business types, generate high-intent Google Maps search queries, and craft a winning B2B sales outreach strategy.")
 
-    col_q1, col_q2 = st.columns([2.5, 1])
+    col_q1, col_q2 = st.columns([2.5, 1.2])
     with col_q1:
         ai_user_ask = st.text_area(
-            "What do you want to sell and where?",
-            value="I want to sell POS billing software, my location is at Dhanmondi, Dhaka. Now help me define search queries for Google Maps to generate more sales.",
+            "What do you want to sell?",
+            value="I want to sell POS billing software to retail shops and supermarkets.",
             height=90,
-            placeholder="e.g. I want to sell commercial CCTV cameras, my location is at Uttara, Dhaka",
+            placeholder="e.g. I want to sell commercial CCTV cameras, POS software, web development services",
             key="ai_sales_ask_input"
         )
     with col_q2:
-        ai_custom_loc = st.text_input("Target Location (Optional override):", value="", placeholder="e.g. Dhanmondi, Dhaka", key="ai_loc_override")
+        ai_custom_loc = st.text_input("Target Location * (Required):", value="Dhanmondi, Dhaka", placeholder="e.g. Dhanmondi, Dhaka", key="ai_loc_override")
         st.write("")
         btn_run_strategy = st.button("🚀 Analyze & Generate Queries", type="primary", use_container_width=True, key="btn_run_strat")
 
     if btn_run_strategy:
-        with st.spinner("🤖 Groq AI is analyzing your market and identifying buyer prospects..."):
-            strategy_result = groq_helper.suggest_search_queries_and_strategy(
-                user_goal_or_product=ai_user_ask,
-                location=ai_custom_loc
-            )
-            st.session_state["last_ai_strategy"] = strategy_result
+        if not ai_user_ask.strip():
+            st.warning("⚠️ Please specify what product or service you want to sell.")
+        elif not ai_custom_loc.strip():
+            st.error("⚠️ Target Location is required! Please enter your target city, area or neighborhood.")
+        else:
+            with st.spinner("🤖 AI is analyzing your target market and identifying buyer prospects..."):
+                strategy_result = groq_helper.suggest_search_queries_and_strategy(
+                    user_goal_or_product=ai_user_ask,
+                    location=ai_custom_loc
+                )
+                st.session_state["last_ai_strategy"] = strategy_result
 
     strategy_data = st.session_state.get("last_ai_strategy", {})
     if strategy_data:
@@ -130,7 +870,12 @@ with tab_ai:
         with c_q_right:
             st.markdown("**One-Click Action:**")
             if st.button("🗺️ Send to Multi-Keyword Batch Search", key="btn_send_to_batch", use_container_width=True):
+                st.session_state["tab2_batch_queries_area"] = queries_text
                 st.session_state["batch_queries_input"] = queries_text
+                st.session_state["ai_batch_queries_transferred"] = True
+                st.rerun()
+
+            if st.session_state.get("ai_batch_queries_transferred", False):
                 st.success("✅ Loaded into Tab 2! Switch to '🗺️ Multi-Location / Multi-Keyword Search' to start scraping.")
 
         # 3. Strategy & Pitch
@@ -145,9 +890,25 @@ with tab_ai:
             st.info(pitch_text)
             if st.button("💬 Use This Pitch in WhatsApp Automation", key="btn_send_pitch_to_wa", use_container_width=True):
                 st.session_state["wa_msg_tmpl"] = pitch_text
+                st.session_state["ai_pitch_transferred"] = True
+                st.rerun()
+
+            if st.session_state.get("ai_pitch_transferred", False):
                 st.success("✅ Pitch copied into Tab 3! Switch to '💬 WhatsApp Automation' to start messaging.")
 
 with tab1:
+    st.markdown("""
+    <div class="tab-header-card">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:1.6rem;">🔍</span>
+            <div>
+                <h3 style="margin:0; font-size:1.35rem; font-weight:700;">Single Target Scraper</h3>
+                <span style="font-size:0.83rem; color:#64748B;">Extract verified local business leads with real-time browser preview and phone filters</span>
+            </div>
+        </div>
+        <span class="pill-badge pill-primary">High-Precision Mode</span>
+    </div>
+    """, unsafe_allow_html=True)
     col1, col2, col3, col4 = st.columns([3, 1, 1, 1.2])
     with col1:
         single_query = st.text_input(
@@ -207,7 +968,7 @@ with tab1:
             with col_screen:
                 screen_placeholder = st.empty()
                 with screen_placeholder.container():
-                    st.markdown("### 🖥️ Live Browser Simulation `🔴 LIVE`")
+                    st.markdown(get_browser_window_frame("Google Maps Single Search"), unsafe_allow_html=True)
                     st.info("Browser starting... Live Google Maps actions will stream here.")
 
             latest_shot = [None]
@@ -223,8 +984,8 @@ with tab1:
                 if screenshot is not None:
                     latest_shot[0] = screenshot
                     with screen_placeholder.container():
-                        st.markdown("### 🖥️ Live Browser Simulation `🔴 LIVE`")
-                        st.image(screenshot, caption=f"Action: {msg}", use_container_width=True)
+                        st.markdown(get_browser_window_frame(f"Action: {msg}"), unsafe_allow_html=True)
+                        st.image(screenshot, use_container_width=True)
 
             try:
                 df = scrape_google_maps(
@@ -241,9 +1002,10 @@ with tab1:
                     st.success(f"🎉 Successfully collected {len(df)} leads!")
                     with grid_placeholder.container():
                         st.markdown(f"### 📋 Extracted Leads ({len(df)} total)")
+                        render_leads_metric_summary(df)
                         st.dataframe(df, width="stretch")
                     with screen_placeholder.container():
-                        st.markdown("### 🖥️ Browser Simulation `✅ Complete`")
+                        st.markdown(get_browser_window_frame("Scraping Complete"), unsafe_allow_html=True)
                         if latest_shot[0] is not None:
                             st.image(latest_shot[0], caption="Finished Scraping", use_container_width=True)
                         else:
@@ -287,12 +1049,30 @@ with tab1:
                 st.error(f"Scraping error: {str(e)}")
 
 with tab2:
+    st.markdown("""
+    <div class="tab-header-card">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:1.6rem;">🗺️</span>
+            <div>
+                <h3 style="margin:0; font-size:1.35rem; font-weight:700;">Multi-Location & Batch Harvester</h3>
+                <span style="font-size:0.83rem; color:#64748B;">Automate multi-city or multi-niche lead scraping in continuous queues with deduplication</span>
+            </div>
+        </div>
+        <span class="pill-badge pill-primary">Batch Harvester</span>
+    </div>
+    """, unsafe_allow_html=True)
+    if st.session_state.get("ai_batch_queries_transferred", False):
+        st.success("✨ **Loaded queries from AI Sales Strategist!** You can review or edit them below, then start your batch run.")
+
     st.markdown("Enter multiple keywords or locations (one per line):")
-    default_batch_text = st.session_state.get("batch_queries_input", "stationary shop in uttara\nstationary shop in mirpur\nstationary shop in dhanmondi")
+    default_batch_text = "stationary shop in uttara\nstationary shop in mirpur\nstationary shop in dhanmondi"
+    if "tab2_batch_queries_area" not in st.session_state:
+        st.session_state["tab2_batch_queries_area"] = st.session_state.get("batch_queries_input", default_batch_text)
+
     batch_input = st.text_area(
         "Search Queries:",
-        value=default_batch_text,
-        height=120,
+        value=st.session_state.get("tab2_batch_queries_area", default_batch_text),
+        height=140,
         key="tab2_batch_queries_area"
     )
     
@@ -351,7 +1131,7 @@ with tab2:
                 with col_b_screen:
                     screen_placeholder_batch = st.empty()
                     with screen_placeholder_batch.container():
-                        st.markdown("### 🖥️ Live Browser Simulation `🔴 LIVE`")
+                        st.markdown(get_browser_window_frame("Multi-Query Batch Harvester"), unsafe_allow_html=True)
                         st.info("Browser starting... Live Google Maps actions will stream here.")
 
                 latest_batch_shot = [None]
@@ -367,8 +1147,8 @@ with tab2:
                     if screenshot is not None:
                         latest_batch_shot[0] = screenshot
                         with screen_placeholder_batch.container():
-                            st.markdown("### 🖥️ Live Browser Simulation `🔴 LIVE`")
-                            st.image(screenshot, caption=f"Action: {msg}", use_container_width=True)
+                            st.markdown(get_browser_window_frame(f"Action: {msg}"), unsafe_allow_html=True)
+                            st.image(screenshot, use_container_width=True)
 
                 try:
                     df_batch = batch_scrape(
@@ -385,9 +1165,10 @@ with tab2:
                         st.success(f"🎉 Batch search finished! Collected {len(df_batch)} total unique leads.")
                         with grid_placeholder_batch.container():
                             st.markdown(f"### 📋 Extracted Leads ({len(df_batch)} total)")
+                            render_leads_metric_summary(df_batch)
                             st.dataframe(df_batch, width="stretch")
                         with screen_placeholder_batch.container():
-                            st.markdown("### 🖥️ Browser Simulation `✅ Complete`")
+                            st.markdown(get_browser_window_frame("Batch Scraping Complete"), unsafe_allow_html=True)
                             if latest_batch_shot[0] is not None:
                                 st.image(latest_batch_shot[0], caption="Finished Batch Scraping", use_container_width=True)
                             else:
@@ -428,8 +1209,18 @@ with tab2:
                     st.error(f"Error during batch scrape: {str(e)}")
 
 with tab3:
-    st.markdown("### 💬 Automated WhatsApp Web Campaign")
-    st.markdown("Send personalized messages automatically to your collected leads using browser-automated WhatsApp Web.")
+    st.markdown("""
+    <div class="tab-header-card">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:1.6rem;">💬</span>
+            <div>
+                <h3 style="margin:0; font-size:1.35rem; font-weight:700;">Automated WhatsApp Web Campaign Hub</h3>
+                <span style="font-size:0.83rem; color:#64748B;">Direct outreach with media attachments, editable lead tables, and pre-campaign test messaging</span>
+            </div>
+        </div>
+        <span class="pill-badge pill-success">Outreach Engine V2</span>
+    </div>
+    """, unsafe_allow_html=True)
 
     is_logged_in = st.session_state.get("whatsapp_logged_in", False) or check_login_status()
     col_auth1, col_auth2 = st.columns([2.5, 1])
@@ -585,13 +1376,13 @@ with tab3:
     st.markdown("---")
     st.markdown("#### 2️⃣ Compose Message & Automation Settings")
 
-    # Groq AI Assistant Expander
-    with st.expander("✨ Groq AI Message Copywriter (Powered by Groq)", expanded=False):
+    # AI Assistant Expander
+    with st.expander("✨ AI Message Copywriter & Pitch Assistant", expanded=False):
         g_conn, g_msg = groq_helper.test_groq_connection()
         if g_conn:
-            st.caption("🟢 **Groq API Status**: Active & Connected (`openai/gpt-oss-120b`)")
+            st.caption("🟢 **AI Engine Status**: Active & Connected")
         else:
-            st.caption(f"🔴 **Groq API Status**: {g_msg}")
+            st.caption(f"🔴 **AI Engine Status**: {g_msg}")
 
         col_ai1, col_ai2 = st.columns([2, 1])
         with col_ai1:
@@ -599,8 +1390,8 @@ with tab3:
         with col_ai2:
             ai_tone = st.selectbox("Tone:", ["Friendly & Professional", "Direct & Concise", "Casual & Warm", "Urgent Promotion"], key="ai_tone_input")
 
-        if st.button("🪄 Generate Cold Pitch with Groq AI", key="btn_gen_ai_pitch"):
-            with st.spinner("Groq AI is crafting your cold pitch..."):
+        if st.button("🪄 Generate Cold Pitch with AI", key="btn_gen_ai_pitch"):
+            with st.spinner("AI is crafting your cold pitch..."):
                 new_tmpl = groq_helper.generate_outreach_template(goal=ai_pitch_offer, tone=ai_tone)
                 if new_tmpl and not new_tmpl.startswith("Error"):
                     st.session_state["wa_msg_tmpl"] = new_tmpl
@@ -623,7 +1414,7 @@ with tab3:
     with col_settings:
         country_code = st.text_input("Default Country Code (without +):", value="880", help="e.g. 880 for Bangladesh, 1 for USA, 44 for UK", key="wa_cc")
         delay = st.slider("Safety Delay Between Messages (seconds):", min_value=5, max_value=30, value=8, help="Recommended to prevent WhatsApp spam flags", key="wa_delay")
-        use_ai_personalize = st.checkbox("🤖 Groq 1-to-1 Personalization", value=False, help="Use Groq to generate a unique personalized message for each individual business based on their name, category, and location", key="wa_use_ai")
+        use_ai_personalize = st.checkbox("🤖 AI Dynamic 1-to-1 Personalization", value=False, help="Generate a unique personalized message for each individual business based on their name, category, and location", key="wa_use_ai")
         show_wa_browser = st.checkbox("👁️ Open Visible WhatsApp Browser", value=False, help="Open external browser window (unchecked runs in background headless mode)", key="wa_watch_browser")
 
     # Media attachment upload
@@ -725,7 +1516,7 @@ with tab3:
             with col_wa_r:
                 wa_screen_placeholder = st.empty()
                 with wa_screen_placeholder.container():
-                    st.markdown("### 🖥️ WhatsApp Live Stream `🔴 LIVE`")
+                    st.markdown(get_browser_window_frame("WhatsApp Web Live Session"), unsafe_allow_html=True)
                     st.info("WhatsApp automation starting...")
 
             delivery_records = []
@@ -752,8 +1543,8 @@ with tab3:
 
                 if screenshot is not None:
                     with wa_screen_placeholder.container():
-                        st.markdown("### 🖥️ WhatsApp Live Stream `🔴 LIVE`")
-                        st.image(screenshot, caption=f"Action: {status_text_msg}", use_container_width=True)
+                        st.markdown(get_browser_window_frame(f"Action: {status_text_msg}"), unsafe_allow_html=True)
+                        st.image(screenshot, use_container_width=True)
 
             leads_list = valid_phone_leads.to_dict("records")
             try:
@@ -770,14 +1561,24 @@ with tab3:
                 )
                 st.success(f"🎉 WhatsApp Campaign Completed! Processed {len(results)} leads.")
                 with wa_screen_placeholder.container():
-                    st.markdown("### 🖥️ WhatsApp Stream `✅ Complete`")
+                    st.markdown(get_browser_window_frame("WhatsApp Campaign Finished"), unsafe_allow_html=True)
                     st.success("All messages sent!")
             except Exception as err:
                 st.error(f"WhatsApp automation error: {str(err)}")
 
 with tab4:
-    st.markdown("### 🗄️ Remote Database & Permanent Lead Archive")
-    st.markdown("Store and query all collected leads permanently in a cloud database (PostgreSQL, Supabase, Neon, MySQL, or local SQLite).")
+    st.markdown("""
+    <div class="tab-header-card">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:1.6rem;">🗄️</span>
+            <div>
+                <h3 style="margin:0; font-size:1.35rem; font-weight:700;">Remote Database & Cloud Vault</h3>
+                <span style="font-size:0.83rem; color:#64748B;">Store, query, filter and archive all scraped B2B leads permanently across PostgreSQL, Supabase or SQLite</span>
+            </div>
+        </div>
+        <span class="pill-badge pill-primary">Permanent Archive</span>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Connection Settings
     with st.expander("⚙️ Database Connection Settings", expanded=True):
@@ -883,17 +1684,20 @@ with tab4:
     except Exception as err:
         st.error(f"Error querying database: {err}")
 
-# Footer / Developer & Copyright Information
-st.markdown("---")
+# Fixed Ultra-Compact Bottom Footer
 st.markdown(
     """
-    <div style="text-align: center; color: var(--text-color, #6B7280); font-size: 0.92rem; padding: 1.5rem 0 1rem 0; line-height: 1.7;">
-        <span>📍 <strong>Google Maps Lead & Phone Collector</strong></span> &bull; 
-        <span>Developed by <a href="https://jqsafi.github.io/" target="_blank" style="color: #2563EB; font-weight: 600; text-decoration: none;">Shafayat Hossain</a></span>
-        <br>
-        <span style="font-size: 0.82rem; opacity: 0.75;">
-            © 2026 <a href="https://jqsafi.github.io/" target="_blank" style="color: inherit; text-decoration: underline;">Shafayat Hossain</a>. All rights reserved.
-        </span>
+    <div class="fixed-compact-footer">
+        <div>
+            <span>📍 <strong>GeoHunter Pro</strong></span>
+            <span style="opacity:0.4; margin: 0 6px;">|</span>
+            <span>© 2026 Shafayat Hossain. All rights reserved.</span>
+        </div>
+        <div>
+            <span>Developed by <a href="https://jqsafi.github.io/" target="_blank">Shafayat Hossain</a></span>
+            <span style="opacity:0.4; margin: 0 6px;">|</span>
+            <span style="font-size: 0.68rem; background: rgba(37,99,235,0.1); color: #2563EB; padding: 1px 6px; border-radius: 4px; font-weight: 700;">v2.5</span>
+        </div>
     </div>
     """,
     unsafe_allow_html=True
