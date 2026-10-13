@@ -33,18 +33,38 @@ def check_login_status(session_dir: str = DEFAULT_SESSION_DIR) -> bool:
     contents = list(session_path.glob("*"))
     return len(contents) > 3
 
-def launch_whatsapp_login_window(session_dir: str = DEFAULT_SESSION_DIR, timeout_minutes: int = 3) -> bool:
+def is_headless_environment() -> bool:
+    """Detect if running on a headless cloud server without an X11 desktop display."""
+    import platform
+    if platform.system() == "Linux" and not os.environ.get("DISPLAY"):
+        return True
+    return False
+
+def launch_whatsapp_login_window(
+    session_dir: str = DEFAULT_SESSION_DIR, 
+    timeout_minutes: int = 3,
+    qr_callback = None,
+    headless = None
+) -> bool:
     """
-    Opens a visible browser window for the user to scan WhatsApp QR code.
-    Saves persistent login in session_dir.
+    Opens browser for the user to scan WhatsApp QR code.
+    If running in a headless cloud environment (like Streamlit Cloud), runs headless
+    and streams QR code screenshots via qr_callback.
     """
     os.makedirs(session_dir, exist_ok=True)
+    if headless is None:
+        headless = is_headless_environment()
+
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             user_data_dir=session_dir,
-            headless=False,
+            headless=headless,
             viewport={"width": 1100, "height": 800},
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled"
+            ]
         )
         page = context.pages[0] if context.pages else context.new_page()
         page.goto("https://web.whatsapp.com/", wait_until="domcontentloaded")
@@ -64,9 +84,20 @@ def launch_whatsapp_login_window(session_dir: str = DEFAULT_SESSION_DIR, timeout
             ):
                 logged_in = True
                 print("[+] WhatsApp Web successfully logged in!")
+                if qr_callback:
+                    qr_callback(None, "Logged in successfully!")
                 time.sleep(2)
                 break
-            time.sleep(1.5)
+
+            # Capture QR code screenshot for Streamlit cloud users
+            if qr_callback:
+                try:
+                    shot = page.screenshot(type="jpeg", quality=60)
+                    qr_callback(shot, "Please scan the QR code with WhatsApp on your phone")
+                except Exception:
+                    pass
+
+            time.sleep(2.0)
             
         context.close()
         return logged_in

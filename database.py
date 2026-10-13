@@ -64,6 +64,13 @@ def normalize_db_url(url: Optional[str] = None) -> str:
     Defaults to environment variable DATABASE_URL or local SQLite fallback.
     """
     if not url:
+        try:
+            import streamlit as st
+            if "DATABASE_URL" in st.secrets:
+                url = st.secrets["DATABASE_URL"]
+        except Exception:
+            pass
+    if not url:
         url = os.environ.get("DATABASE_URL")
     if not url:
         url = "sqlite:///gmaps_leads_archive.db"

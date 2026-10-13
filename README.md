@@ -158,7 +158,25 @@ Every extracted lead includes the following structured fields:
    ```bash
    playwright install chromium
    ```
-   *(On Linux servers without GUI libraries, you may also need: `playwright install-deps chromium`)*
+---
+
+## ☁️ Deploying to Streamlit Community Cloud
+
+You can deploy this application for free on [Streamlit Community Cloud](https://share.streamlit.io):
+
+1. **Push your code to GitHub** (already set up in `jQsafi/gmaps_lead_collector`).
+2. Go to **[share.streamlit.io](https://share.streamlit.io)** and log in with GitHub.
+3. Click **Create app** &rarr; **Deploy a public app from GitHub**:
+   - **Repository**: `jQsafi/gmaps_lead_collector`
+   - **Branch**: `main`
+   - **Main file path**: `app_ui.py`
+4. Expand **Advanced settings** &rarr; **Secrets**, and add your credentials:
+   ```toml
+   GROQ_API_KEY = "gsk_your_groq_api_key_here"
+   DATABASE_URL = "sqlite:///gmaps_leads_archive.db" # Or your remote Supabase/PostgreSQL URL
+   ```
+5. Click **Deploy!**
+   > *Note: `packages.txt` is pre-configured with the required Debian packages to ensure Playwright Chromium runs smoothly on Streamlit Cloud's Linux environment.*
 
 ---
 

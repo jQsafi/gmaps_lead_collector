@@ -9,9 +9,15 @@ DEFAULT_MODEL = "openai/gpt-oss-120b"
 FAST_MODEL = "openai/gpt-oss-20b"
 
 def get_groq_api_key(api_key: Optional[str] = None) -> str:
-    """Retrieve Groq API key from argument or environment variable."""
+    """Retrieve Groq API key from argument, Streamlit Secrets, or environment variable."""
     if api_key and api_key.strip():
         return api_key.strip()
+    try:
+        import streamlit as st
+        if "GROQ_API_KEY" in st.secrets:
+            return st.secrets["GROQ_API_KEY"].strip()
+    except Exception:
+        pass
     return os.environ.get("GROQ_API_KEY", "").strip()
 
 def get_groq_client(api_key: Optional[str] = None) -> Groq:

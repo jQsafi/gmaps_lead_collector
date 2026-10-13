@@ -1,3 +1,6 @@
+import os
+import sys
+import subprocess
 import io
 import streamlit as st
 import pandas as pd
@@ -10,6 +13,24 @@ from whatsapp_sender import (
 )
 import database
 import groq_helper
+
+@st.cache_resource
+def ensure_playwright_browsers():
+    """Ensure Chromium browser binary is installed on Streamlit Cloud."""
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            exec_path = p.chromium.executable_path
+            if not os.path.exists(exec_path):
+                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+    except Exception:
+        try:
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        except Exception:
+            pass
+
+ensure_playwright_browsers()
+
 
 
 st.set_page_config(
@@ -414,12 +435,21 @@ with tab3:
             st.success("🟢 **WhatsApp Web Session Active** (Saved session found)")
         else:
             st.warning("⚪ **WhatsApp Web Session Not Connected** (Please scan QR Code once to authenticate)")
-    with col_auth2:
+        qr_display_box = st.empty()
         if st.button("🔑 Connect / Scan QR Code", key="btn_wa_login", use_container_width=True):
-            with st.spinner("Opening browser window... Please scan the WhatsApp QR Code with your phone."):
-                success = launch_whatsapp_login_window(timeout_minutes=2)
+            with st.spinner("Connecting to WhatsApp Web..."):
+                def qr_stream_cb(screenshot, status_note):
+                    if screenshot is not None:
+                        with qr_display_box.container():
+                            st.info("📱 Scan this QR Code with WhatsApp on your phone (**Linked Devices &rarr; Link a Device**):")
+                            st.image(screenshot, width=420)
+                    else:
+                        qr_display_box.empty()
+
+                success = launch_whatsapp_login_window(timeout_minutes=3, qr_callback=qr_stream_cb)
                 if success:
                     st.success("🎉 Successfully connected to WhatsApp Web!")
+                    qr_display_box.empty()
                     st.rerun()
                 else:
                     st.error("Login timed out or window was closed before scanning.")
