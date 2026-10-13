@@ -119,3 +119,64 @@ Rules:
     except Exception as e:
         return f"Hello {biz_name}, I noticed your {category} in {address}. Are you accepting new clients?"
 
+def suggest_search_queries_and_strategy(
+    user_goal_or_product: str,
+    location: str = "",
+    api_key: Optional[str] = None
+) -> Dict:
+    """
+    Analyzes what product/service the user wants to sell and their target location,
+    identifies the exact prospective buyer business types, generates high-intent Google Maps
+    search queries to find those leads, and provides B2B sales strategy & WhatsApp pitch.
+    """
+    import json
+    client = get_groq_client(api_key)
+
+    loc_text = f"Target Location: {location}" if location else "Target Location specified in query"
+    user_prompt = f"""User request: {user_goal_or_product}
+{loc_text}
+
+You are an elite B2B sales consultant and Google Maps lead generation specialist.
+The user wants to find commercial client businesses on Google Maps to sell their product/service to.
+
+Please analyze:
+1. Who are the commercial target businesses in that location who BUY or NEED this product/service?
+2. Generate 6-10 specific, high-intent Google Maps search queries to find those PROSPECT businesses (e.g., if selling POS software in Dhanmondi, suggest 'restaurants in Dhanmondi', 'pharmacies in Dhanmondi', 'super shop in Dhanmondi', 'clothing boutique in Dhanmondi').
+3. Actionable sales & outreach strategy on how to approach and close deals with these local businesses on WhatsApp.
+4. A high-converting cold outreach WhatsApp pitch message.
+
+Return a valid JSON object with the following exact keys:
+- "target_buyers": A clear description of the buyer business types.
+- "suggested_queries": A list of 6-10 exact Google Maps search query strings.
+- "sales_strategy": Strategic actionable advice for selling to these businesses.
+- "recommended_pitch": A short, persuasive cold WhatsApp message to send them.
+"""
+
+    try:
+        resp = client.chat.completions.create(
+            model=FAST_MODEL,
+            messages=[
+                {"role": "system", "content": "You are an elite B2B growth strategist. Output valid JSON only."},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.6,
+            max_tokens=1400
+        )
+        data = json.loads(resp.choices[0].message.content)
+        return data
+    except Exception as e:
+        default_queries = [
+            f"shops in {location}".strip(),
+            f"restaurants in {location}".strip(),
+            f"businesses in {location}".strip()
+        ]
+        return {
+            "target_buyers": f"Businesses in {location} interested in {user_goal_or_product}",
+            "suggested_queries": [q for q in default_queries if q],
+            "sales_strategy": "Reach out directly via WhatsApp introducing your service and offering a quick free consultation.",
+            "recommended_pitch": f"Hello {{Name}}, we noticed your business in {{Address}}. We help local companies with {user_goal_or_product}. Are you open to a brief chat?",
+            "error": str(e)
+        }
+
+

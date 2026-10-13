@@ -173,7 +173,13 @@ streamlit run app_ui.py
 The application will open automatically in your browser at `http://localhost:8501`.
 
 ### Web Dashboard Features:
-1. **🔍 Single Search Tab**:
+1. **💡 AI Sales Strategist & Query Generator Tab**:
+   - Tell the AI what product or service you want to sell and your target location (e.g., *"I want to sell POS billing software, my location is at Dhanmondi, Dhaka"*).
+   - Powered by Groq AI, it analyzes the local market, identifies the exact buyer business types (e.g. restaurants, supermarkets, pharmacies), generates 6-10 ready-to-scrape Google Maps queries, and gives actionable outreach advice.
+   - **One-click "Send to Batch Search"**: Transports suggested queries straight into Tab 2 to begin scraping immediately.
+   - **One-click "Use This Pitch"**: Copies the AI-generated cold pitch directly into WhatsApp outreach (Tab 3).
+
+2. **🔍 Single Search Tab**:
    - Specify your search query and target location (e.g., `pharmacy in gulshan`).
    - Set maximum results count (up to 300).
    - Toggle **📱 Phone Number Only** to exclude businesses without contact numbers.

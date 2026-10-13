@@ -52,13 +52,76 @@ st.markdown("""
 st.markdown('<div class="main-header">📍 Google Maps Lead & Phone Collector</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-text">Extract business names, phone numbers, ratings, addresses, and websites directly from Google Maps into Excel / CSV / Remote Database.</div>', unsafe_allow_html=True)
 
-# Tabs: Single Search vs Batch Multi-Location Search vs WhatsApp Automation vs Remote Database
-tab1, tab2, tab3, tab4 = st.tabs([
+# Tabs: AI Sales Strategist vs Single Search vs Batch Search vs WhatsApp Automation vs Remote Database
+tab_ai, tab1, tab2, tab3, tab4 = st.tabs([
+    "💡 AI Sales Strategist",
     "🔍 Single Search", 
     "🗺️ Multi-Location / Multi-Keyword Search", 
     "💬 WhatsApp Automation", 
     "🗄️ Remote Database"
 ])
+
+with tab_ai:
+    st.markdown("### 💡 AI Sales Strategist & Query Generator `(Powered by Groq)`")
+    st.markdown("Describe what product or service you want to sell and your target location. Groq AI will analyze your target market, determine the best commercial client business types, generate high-intent Google Maps search queries, and craft a winning B2B sales outreach strategy.")
+
+    col_q1, col_q2 = st.columns([2.5, 1])
+    with col_q1:
+        ai_user_ask = st.text_area(
+            "What do you want to sell and where?",
+            value="I want to sell POS billing software, my location is at Dhanmondi, Dhaka. Now help me define search queries for Google Maps to generate more sales.",
+            height=90,
+            placeholder="e.g. I want to sell commercial CCTV cameras, my location is at Uttara, Dhaka",
+            key="ai_sales_ask_input"
+        )
+    with col_q2:
+        ai_custom_loc = st.text_input("Target Location (Optional override):", value="", placeholder="e.g. Dhanmondi, Dhaka", key="ai_loc_override")
+        st.write("")
+        btn_run_strategy = st.button("🚀 Analyze & Generate Queries", type="primary", use_container_width=True, key="btn_run_strat")
+
+    if btn_run_strategy:
+        with st.spinner("🤖 Groq AI is analyzing your market and identifying buyer prospects..."):
+            strategy_result = groq_helper.suggest_search_queries_and_strategy(
+                user_goal_or_product=ai_user_ask,
+                location=ai_custom_loc
+            )
+            st.session_state["last_ai_strategy"] = strategy_result
+
+    strategy_data = st.session_state.get("last_ai_strategy", {})
+    if strategy_data:
+        st.markdown("---")
+        # 1. Target Audience & Market Analysis
+        st.markdown("#### 🎯 1. Target Buyer Businesses")
+        st.info(f"**Potential Clients to Target:**\n\n{strategy_data.get('target_buyers', 'Local businesses needing your product.')}")
+
+        # 2. Recommended Search Queries
+        st.markdown("#### 🔍 2. High-Intent Google Maps Search Queries")
+        queries_list = strategy_data.get("suggested_queries", [])
+        queries_text = "\n".join(queries_list)
+
+        c_q_left, c_q_right = st.columns([2, 1])
+        with c_q_left:
+            st.markdown("Copy or transfer these ready-to-scrape Google Maps queries:")
+            st.code(queries_text, language="text")
+        with c_q_right:
+            st.markdown("**One-Click Action:**")
+            if st.button("🗺️ Send to Multi-Keyword Batch Search", key="btn_send_to_batch", use_container_width=True):
+                st.session_state["batch_queries_input"] = queries_text
+                st.success("✅ Loaded into Tab 2! Switch to '🗺️ Multi-Location / Multi-Keyword Search' to start scraping.")
+
+        # 3. Strategy & Pitch
+        st.markdown("---")
+        col_strat1, col_strat2 = st.columns(2)
+        with col_strat1:
+            st.markdown("#### 📈 3. Actionable Sales & Outreach Strategy")
+            st.success(strategy_data.get("sales_strategy", "Reach out directly introducing your offer."))
+        with col_strat2:
+            st.markdown("#### 💬 4. Recommended WhatsApp Cold Pitch")
+            pitch_text = strategy_data.get("recommended_pitch", "")
+            st.info(pitch_text)
+            if st.button("💬 Use This Pitch in WhatsApp Automation", key="btn_send_pitch_to_wa", use_container_width=True):
+                st.session_state["wa_msg_tmpl"] = pitch_text
+                st.success("✅ Pitch copied into Tab 3! Switch to '💬 WhatsApp Automation' to start messaging.")
 
 with tab1:
     col1, col2, col3, col4 = st.columns([3, 1, 1, 1.2])
@@ -201,10 +264,12 @@ with tab1:
 
 with tab2:
     st.markdown("Enter multiple keywords or locations (one per line):")
+    default_batch_text = st.session_state.get("batch_queries_input", "stationary shop in uttara\nstationary shop in mirpur\nstationary shop in dhanmondi")
     batch_input = st.text_area(
         "Search Queries:",
-        value="stationary shop in uttara\nstationary shop in mirpur\nstationary shop in dhanmondi",
-        height=120
+        value=default_batch_text,
+        height=120,
+        key="tab2_batch_queries_area"
     )
     
     col_b1, col_b2, col_b3 = st.columns([2, 1, 1.2])
