@@ -9,14 +9,35 @@ import pandas as pd
 from playwright.sync_api import sync_playwright
 
 import database
-from whatsapp_sender import (
-    DEFAULT_SESSION_DIR,
-    DEFAULT_CHROME_UA,
-    format_whatsapp_number,
-    send_whatsapp_message,
-    close_whatsapp_session,
-    check_login_status
+import whatsapp_sender
+DEFAULT_SESSION_DIR = getattr(whatsapp_sender, "DEFAULT_SESSION_DIR", os.path.abspath("./whatsapp_session"))
+DEFAULT_CHROME_UA = getattr(
+    whatsapp_sender,
+    "DEFAULT_CHROME_UA",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 )
+format_whatsapp_number = getattr(whatsapp_sender, "format_whatsapp_number", lambda p, cc="880": p)
+send_whatsapp_message = getattr(whatsapp_sender, "send_whatsapp_message", lambda **kw: {"status": "Failed"})
+check_login_status = getattr(whatsapp_sender, "check_login_status", lambda s=None: False)
+
+def close_whatsapp_session(session_dir=None):
+    if hasattr(whatsapp_sender, "close_whatsapp_session"):
+        return whatsapp_sender.close_whatsapp_session(session_dir) if session_dir else whatsapp_sender.close_whatsapp_session()
+    try:
+        from pathlib import Path
+        s_dir = session_dir or DEFAULT_SESSION_DIR
+        p = Path(s_dir)
+        marker = p / "session_active.marker"
+        if marker.exists():
+            marker.unlink()
+        for lock in p.glob("Singleton*"):
+            try:
+                lock.unlink()
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
 from scraper import clean_phone_number, clean_address, make_whatsapp_link, DEFAULT_FIELDS
 
 def run_campaign(

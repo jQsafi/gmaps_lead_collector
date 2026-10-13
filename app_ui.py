@@ -4,39 +4,62 @@ import time
 import subprocess
 import io
 import threading
+import importlib
 from datetime import datetime, date
 import streamlit as st
 import pandas as pd
-from scraper import scrape_google_maps, batch_scrape, DEFAULT_FIELDS
-from whatsapp_sender import (
-    format_whatsapp_number,
-    check_login_status,
-    launch_whatsapp_login_window,
-    bulk_send_whatsapp,
-    send_test_whatsapp_message,
-    parse_manual_numbers,
-    close_whatsapp_session
-)
-from campaign_engine import run_campaign
-import database
-import groq_helper
 
 @st.cache_resource
 def ensure_playwright_browsers():
     """Ensure Chromium browser binary is installed on Streamlit Cloud."""
     try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            exec_path = p.chromium.executable_path
-            if not os.path.exists(exec_path):
-                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
     except Exception:
         try:
-            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+            os.system(f"{sys.executable} -m playwright install chromium")
         except Exception:
             pass
 
 ensure_playwright_browsers()
+
+# Force-reload local helper modules if stale versions are cached by Streamlit Cloud runner
+for _mod in ["whatsapp_sender", "scraper", "campaign_engine", "database"]:
+    if _mod in sys.modules:
+        try:
+            importlib.reload(sys.modules[_mod])
+        except Exception:
+            pass
+
+from scraper import scrape_google_maps, batch_scrape, DEFAULT_FIELDS
+import whatsapp_sender
+format_whatsapp_number = getattr(whatsapp_sender, "format_whatsapp_number", lambda p, cc="880": p)
+check_login_status = getattr(whatsapp_sender, "check_login_status", lambda s=None: False)
+launch_whatsapp_login_window = getattr(whatsapp_sender, "launch_whatsapp_login_window", lambda **kw: False)
+bulk_send_whatsapp = getattr(whatsapp_sender, "bulk_send_whatsapp", lambda **kw: {})
+send_test_whatsapp_message = getattr(whatsapp_sender, "send_test_whatsapp_message", lambda **kw: {})
+parse_manual_numbers = getattr(whatsapp_sender, "parse_manual_numbers", lambda raw: [])
+
+def close_whatsapp_session(session_dir=None):
+    if hasattr(whatsapp_sender, "close_whatsapp_session"):
+        return whatsapp_sender.close_whatsapp_session(session_dir) if session_dir else whatsapp_sender.close_whatsapp_session()
+    try:
+        from pathlib import Path
+        s_dir = session_dir or getattr(whatsapp_sender, "DEFAULT_SESSION_DIR", "./whatsapp_session")
+        p = Path(s_dir)
+        marker = p / "session_active.marker"
+        if marker.exists():
+            marker.unlink()
+        for lock in p.glob("Singleton*"):
+            try:
+                lock.unlink()
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
+from campaign_engine import run_campaign
+import database
+import groq_helper
 
 def inject_gtm_into_index_html():
     """Inject Google Tag Manager directly into Streamlit's static index.html template."""

@@ -11,6 +11,38 @@ DEFAULT_CHROME_UA = (
     "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 )
 
+def close_whatsapp_session(session_dir: str = DEFAULT_SESSION_DIR) -> bool:
+    """Closes and resets active session marker so next campaign authenticates freshly."""
+    try:
+        session_path = Path(session_dir)
+        marker = session_path / "session_active.marker"
+        if marker.exists():
+            marker.unlink()
+        for lock_file in session_path.glob("Singleton*"):
+            try:
+                lock_file.unlink()
+            except Exception:
+                pass
+        return True
+    except Exception as e:
+        print(f"Error resetting WhatsApp session: {e}")
+        return False
+
+__all__ = [
+    "DEFAULT_SESSION_DIR",
+    "DEFAULT_CHROME_UA",
+    "format_whatsapp_number",
+    "check_login_status",
+    "close_whatsapp_session",
+    "is_headless_environment",
+    "launch_whatsapp_login_window",
+    "send_whatsapp_message",
+    "bulk_send_whatsapp",
+    "send_test_whatsapp_message",
+    "parse_manual_numbers",
+    "generate_whatsapp_link"
+]
+
 def format_whatsapp_number(phone: str, default_country_code: str = "880") -> str:
     """Format phone number with country code for WhatsApp Web."""
     if not phone:
