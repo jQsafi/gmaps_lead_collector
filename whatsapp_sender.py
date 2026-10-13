@@ -33,7 +33,12 @@ def check_login_status(session_dir: str = DEFAULT_SESSION_DIR) -> bool:
     session_path = Path(session_dir)
     if not session_path.exists():
         return False
-    # Check if persistent context directory has data
+    marker = session_path / "session_active.marker"
+    if marker.exists():
+        return True
+    idb = session_path / "Default" / "IndexedDB"
+    if idb.exists() and any(idb.glob("*")):
+        return True
     contents = list(session_path.glob("*"))
     return len(contents) > 3
 
@@ -86,35 +91,55 @@ def launch_whatsapp_login_window(
         logged_in = False
 
         while time.time() - start_time < max_duration:
-            # Check for chat list or search bar indicating successful login
+            # Check for chat list, left pane, search box, or navigation icons indicating login completion
             if (
-                page.locator('div[data-testid="chat-list"]').count() > 0 or
-                page.locator('div[data-testid="conversation-panel-wrapper"]').count() > 0 or
                 page.locator('#pane-side').count() > 0 or
+                page.locator('div[data-testid="chat-list"]').count() > 0 or
+                page.locator('div[aria-label*="chat list" i]').count() > 0 or
+                page.locator('div[aria-label*="chats" i]').count() > 0 or
+                page.locator('div[data-testid="conversation-panel-wrapper"]').count() > 0 or
+                page.locator('div[data-testid="intro-title"]').count() > 0 or
+                page.locator('header[data-testid="chatlist-header"]').count() > 0 or
+                page.locator('button[aria-label*="menu" i]').count() > 0 or
+                page.locator('button[aria-label*="new chat" i]').count() > 0 or
+                page.locator('span[data-icon="menu"]').count() > 0 or
+                page.locator('span[data-icon="chat"]').count() > 0 or
+                page.locator('span[data-icon="chats-outline"]').count() > 0 or
                 page.locator('div[role="textbox"]').count() > 0
             ):
                 logged_in = True
                 print("[+] WhatsApp Web successfully logged in!")
                 if qr_callback:
                     qr_callback(None, "Logged in successfully!")
-                time.sleep(2)
                 break
 
-            # Capture QR code screenshot for Streamlit cloud users
+            # Check if QR code is still visible or if phone has been scanned
+            qr_el = page.locator('div[data-ref], canvas').first
+            has_qr = qr_el.count() > 0 and qr_el.is_visible()
+
+            # Stream screenshot & live status note
             if qr_callback:
                 try:
-                    # Prefer zooming in on the QR container if found, else full page screenshot
-                    qr_el = page.locator('div[data-ref], canvas').first
-                    if qr_el.count() > 0 and qr_el.is_visible():
+                    if has_qr:
                         shot = qr_el.screenshot(type="jpeg", quality=80)
+                        qr_callback(shot, "Please scan the QR code with WhatsApp on your phone")
                     else:
                         shot = page.screenshot(type="jpeg", quality=60)
-                    qr_callback(shot, "Please scan the QR code with WhatsApp on your phone")
+                        qr_callback(shot, "Phone connected! Syncing WhatsApp messages, please wait a moment...")
                 except Exception:
                     pass
 
             time.sleep(2.0)
             
+        if logged_in:
+            marker = Path(session_dir) / "session_active.marker"
+            try:
+                marker.write_text(str(int(time.time())))
+            except Exception:
+                pass
+            # Give Chromium 5 seconds to flush IndexedDB & session credentials to disk
+            time.sleep(5)
+
         context.close()
         return logged_in
 

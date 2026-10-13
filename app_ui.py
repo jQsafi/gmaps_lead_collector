@@ -428,11 +428,11 @@ with tab3:
     st.markdown("### 💬 Automated WhatsApp Web Campaign")
     st.markdown("Send personalized messages automatically to your collected leads using browser-automated WhatsApp Web.")
 
-    is_logged_in = check_login_status()
+    is_logged_in = st.session_state.get("whatsapp_logged_in", False) or check_login_status()
     col_auth1, col_auth2 = st.columns([2.5, 1])
     with col_auth1:
         if is_logged_in:
-            st.success("🟢 **WhatsApp Web Session Active** (Saved session found)")
+            st.success("🟢 **WhatsApp Web Session Active** (Session connected and ready)")
         else:
             st.warning("⚪ **WhatsApp Web Session Not Connected** (Please scan QR Code once to authenticate)")
         qr_display_box = st.empty()
@@ -441,18 +441,38 @@ with tab3:
                 def qr_stream_cb(screenshot, status_note):
                     if screenshot is not None:
                         with qr_display_box.container():
-                            st.info("📱 Scan this QR Code with WhatsApp on your phone (**Linked Devices &rarr; Link a Device**):")
+                            if "sync" in status_note.lower() or "connected" in status_note.lower() and "scan" not in status_note.lower():
+                                st.info(f"🔄 **{status_note}**")
+                            else:
+                                st.info(f"📱 {status_note} (**Linked Devices &rarr; Link a Device**):")
                             st.image(screenshot, width=420)
                     else:
                         qr_display_box.empty()
 
                 success = launch_whatsapp_login_window(timeout_minutes=3, qr_callback=qr_stream_cb)
                 if success:
+                    st.session_state["whatsapp_logged_in"] = True
                     st.success("🎉 Successfully connected to WhatsApp Web!")
                     qr_display_box.empty()
+                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Login timed out or window was closed before scanning.")
+
+    with col_auth2:
+        if is_logged_in:
+            if st.button("🔄 Reconnect / Reset", key="btn_wa_reset", use_container_width=True):
+                st.session_state["whatsapp_logged_in"] = False
+                import shutil
+                from pathlib import Path
+                from whatsapp_sender import DEFAULT_SESSION_DIR
+                marker = Path(DEFAULT_SESSION_DIR) / "session_active.marker"
+                if marker.exists():
+                    try:
+                        marker.unlink()
+                    except Exception:
+                        pass
+                st.rerun()
 
     st.markdown("---")
 
