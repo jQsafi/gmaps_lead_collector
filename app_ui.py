@@ -883,3 +883,19 @@ with tab4:
     except Exception as err:
         st.error(f"Error querying database: {err}")
 
+# Footer / Developer & Copyright Information
+st.markdown("---")
+st.markdown(
+    """
+    <div style="text-align: center; color: var(--text-color, #6B7280); font-size: 0.92rem; padding: 1.5rem 0 1rem 0; line-height: 1.7;">
+        <span>📍 <strong>Google Maps Lead & Phone Collector</strong></span> &bull; 
+        <span>Developed by <a href="https://jqsafi.github.io/" target="_blank" style="color: #2563EB; font-weight: 600; text-decoration: none;">Shafayat Hossain</a></span>
+        <br>
+        <span style="font-size: 0.82rem; opacity: 0.75;">
+            © 2026 <a href="https://jqsafi.github.io/" target="_blank" style="color: inherit; text-decoration: underline;">Shafayat Hossain</a>. All rights reserved.
+        </span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
