@@ -1,0 +1,36 @@
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# WhatsApp session data (Sensitive auth tokens & QR profiles)
+whatsapp_session/
+.playwright/
+
+# OS metadata
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Scraped data outputs
+*.csv
+*.xlsx
+*.db
+*.sqlite
+*.sqlite3
+*.vcf
+*.json
