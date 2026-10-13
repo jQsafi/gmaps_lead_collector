@@ -50,6 +50,10 @@ A powerful, automated lead generation and business contact extraction tool for *
   - Automatically generates ready-to-click WhatsApp Web links (`https://wa.me/...`) for every phone number in Excel and CSV exports.
   - Dedicated **WhatsApp Automation Dashboard (Tab 3)** with QR code login, custom message templates with dynamic variables (`{Name}`, `{Category}`, etc.), safety delays, and live screen preview.
   - CLI script (`whatsapp_sender.py`) to automate messaging or test single numbers from the terminal.
+- **🗄️ Permanent Remote Database Storage & Sync**:
+  - Connect effortlessly to cloud SQL databases such as **PostgreSQL (Supabase, Neon.tech, Railway, AWS RDS)**, **MySQL**, or local **SQLite**.
+  - Intelligent deduplication on insert via unique Google Maps listing URLs and contact numbers.
+  - Interactive SQL explorer in Web UI (Tab 4) with search filters, real-time statistics, CSV/Excel export, and direct sync into WhatsApp outreach.
 - **📊 Export Formats**:
   - **Excel (`.xlsx`)**: Formatted spreadsheet ready for sales teams.
   - **CSV (`.csv`)**: Exported with `UTF-8 with BOM` (`utf-8-sig`) encoding to ensure international and localized characters display cleanly in Microsoft Excel.
@@ -183,10 +187,16 @@ The application will open automatically in your browser at `http://localhost:850
 
 3. **💬 WhatsApp Automation Tab**:
    - **QR Code One-Click Connect**: Authenticate WhatsApp Web directly and store your persistent session locally in `./whatsapp_session`.
-   - **Leads Source**: Message recent search results directly or upload any CSV/Excel file of leads.
+   - **Leads Source**: Message recent search results, import from Remote Database, or upload any CSV/Excel file of leads.
    - **Personalized Template Editor**: Write custom outreach templates supporting dynamic variables (`{Name}`, `{Category}`, `{Address}`, `{Website}`, `{Phone}`).
    - **Safety Delay Controls**: Set configurable intervals (default: 8s) between messages to protect your account.
    - **Live Progress & Streaming**: Watch a real-time stream of WhatsApp Web actions side-by-side with delivery status logs.
+
+4. **🗄️ Remote Database Tab**:
+   - **Cloud SQL Integration**: Connect directly to Supabase, Neon.tech, Railway, AWS RDS, PostgreSQL, MySQL, or local SQLite.
+   - **Live Metrics Dashboard**: Real-time cards for total archived leads, valid phone numbers, unique business categories, and queries.
+   - **Search & Filter Archive**: Query archived leads by location keyword, category, or phone status with pagination.
+   - **Export & WhatsApp Sync**: One-click download of filtered database records to Excel/CSV, or push them straight into the WhatsApp campaign queue.
 
 ---
 
@@ -265,6 +275,8 @@ Send automated messages or test WhatsApp connectivity directly from the terminal
 | `--phone-only` | | `False` | Only retain records that contain a valid phone number. |
 | `--fields` | `-f` | All fields | Comma-separated list of fields to collect (`Query, Name, Phone, WhatsApp, Category, Rating, Reviews, Address, Website, Google Maps URL`). |
 | `--visible` | | `False` | Run browser with GUI window visible instead of headless mode. |
+| `--save-to-db` | | `False` | Automatically save scraped leads to remote or local database. |
+| `--db-url` | | `None` | Database connection URI (PostgreSQL / Supabase / MySQL / SQLite). |
 
 ### `whatsapp_sender.py`
 | Flag | Short | Default | Description |
@@ -285,8 +297,10 @@ Send automated messages or test WhatsApp connectivity directly from the terminal
 ```
 gmaps_lead_collector/
 ├── scraper.py          # Core Playwright scraping engine and CLI entry point
-├── app_ui.py           # Streamlit web application frontend (Search + WhatsApp)
+├── app_ui.py           # Streamlit web application frontend (Search, WhatsApp & Database)
+├── database.py         # SQLAlchemy ORM, cloud DB connections, deduplication & stats
 ├── whatsapp_sender.py  # WhatsApp automation engine (Web automation & CLI)
+├── .env.example        # Example environment variables (Supabase, Neon, PostgreSQL)
 ├── requirements.txt    # Project Python dependencies
 └── README.md           # Project documentation and user guide
 ```

@@ -393,6 +393,8 @@ if __name__ == "__main__":
     parser.add_argument("--phone-only", action="store_true", help="Only save leads with phone numbers")
     parser.add_argument("--fields", "-f", type=str, default=None, help=f"Comma-separated list of fields to collect ({', '.join(DEFAULT_FIELDS)}). Defaults to all.")
     parser.add_argument("--visible", action="store_true", help="Open browser visibly (for debugging)")
+    parser.add_argument("--save-to-db", action="store_true", help="Automatically save scraped leads to remote/local database")
+    parser.add_argument("--db-url", type=str, default=None, help="Database connection URI (or read from DATABASE_URL env var)")
     
     args = parser.parse_args()
     
@@ -434,5 +436,14 @@ if __name__ == "__main__":
         else:
             df_final.to_excel(args.output, index=False)
         print(f"\n[+] Successfully saved {len(df_final)} records to '{args.output}'!")
+
+        if args.save_to_db:
+            try:
+                import database
+                db_res = database.save_leads_to_db(df_final, db_url=args.db_url)
+                print(f"[+] Saved to database: {db_res['inserted']} inserted, {db_res['duplicates']} updated/deduplicated.")
+            except Exception as dbe:
+                print(f"[!] Error saving to database: {dbe}")
     else:
         print("\n[-] No records found.")
+

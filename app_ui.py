@@ -8,12 +8,16 @@ from whatsapp_sender import (
     launch_whatsapp_login_window,
     bulk_send_whatsapp
 )
+import database
 
 st.set_page_config(
     page_title="Google Maps Lead & Phone Collector",
     page_icon="📍",
     layout="wide"
 )
+
+if "db_url" not in st.session_state:
+    st.session_state["db_url"] = database.normalize_db_url()
 
 # Custom CSS for styling
 st.markdown("""
@@ -44,10 +48,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-header">📍 Google Maps Lead & Phone Collector</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-text">Extract business names, phone numbers, ratings, addresses, and websites directly from Google Maps into Excel / CSV.</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-text">Extract business names, phone numbers, ratings, addresses, and websites directly from Google Maps into Excel / CSV / Remote Database.</div>', unsafe_allow_html=True)
 
-# Tabs: Single Search vs Batch Multi-Location Search vs WhatsApp Automation
-tab1, tab2, tab3 = st.tabs(["🔍 Single Search", "🗺️ Multi-Location / Multi-Keyword Search", "💬 WhatsApp Automation"])
+# Tabs: Single Search vs Batch Multi-Location Search vs WhatsApp Automation vs Remote Database
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🔍 Single Search", 
+    "🗺️ Multi-Location / Multi-Keyword Search", 
+    "💬 WhatsApp Automation", 
+    "🗄️ Remote Database"
+])
 
 with tab1:
     col1, col2, col3, col4 = st.columns([3, 1, 1, 1.2])
@@ -176,6 +185,13 @@ with tab1:
                         mime="text/csv",
                         use_container_width=True
                     )
+
+                    # Auto-sync to database
+                    try:
+                        sync_res = database.save_leads_to_db(df, db_url=st.session_state.get("db_url"))
+                        st.success(f"💾 Permanently recorded in Database: **{sync_res['inserted']} new**, **{sync_res['duplicates']} updated/deduplicated**.")
+                    except Exception as dbe:
+                        st.info(f"Database note: {dbe}")
                 else:
                     st.warning("No listings found matching your criteria.")
             except Exception as e:
@@ -308,6 +324,13 @@ with tab2:
                             mime="text/csv",
                             use_container_width=True
                         )
+
+                        # Auto-sync batch leads to database
+                        try:
+                            sync_b_res = database.save_leads_to_db(df_batch, db_url=st.session_state.get("db_url"))
+                            st.success(f"💾 Permanently recorded in Database: **{sync_b_res['inserted']} new**, **{sync_b_res['duplicates']} updated/deduplicated**.")
+                        except Exception as dbe:
+                            st.info(f"Database note: {dbe}")
                     else:
                         st.warning("No listings found.")
                 except Exception as e:
@@ -342,7 +365,7 @@ with tab3:
 
     source_option = st.radio(
         "Choose leads source:",
-        options=["Recent Search Results", "Upload Excel / CSV File"],
+        options=["Recent Search Results", "From Remote Database", "Upload Excel / CSV File"],
         horizontal=True,
         key="wa_source_radio"
     )
@@ -353,7 +376,17 @@ with tab3:
             wa_leads_df = st.session_state["active_leads_df"]
             st.info(f"Loaded **{len(wa_leads_df)} leads** from your latest search session.")
         else:
-            st.warning("⚠️ No leads found in current session. Run a search in Tab 1 or Tab 2, or upload a file below.")
+            st.warning("⚠️ No leads found in current session. Run a search in Tab 1 or Tab 2, or choose another source.")
+    elif source_option == "From Remote Database":
+        try:
+            db_leads = database.fetch_leads_from_db(db_url=st.session_state.get("db_url"), has_phone_only=True)
+            if not db_leads.empty:
+                wa_leads_df = db_leads
+                st.info(f"Loaded **{len(wa_leads_df)} leads** with phone numbers directly from the Remote Database.")
+            else:
+                st.warning("Remote Database has no leads with phone numbers yet. Scrape or import leads first.")
+        except Exception as dbe:
+            st.error(f"Failed to fetch leads from database: {dbe}")
     else:
         uploaded_file = st.file_uploader("Upload leads file (.xlsx or .csv)", type=["xlsx", "csv"], key="wa_file_uploader")
         if uploaded_file is not None:
@@ -458,3 +491,112 @@ with tab3:
                         st.success("All messages sent!")
                 except Exception as err:
                     st.error(f"WhatsApp automation error: {str(err)}")
+
+with tab4:
+    st.markdown("### 🗄️ Remote Database & Permanent Lead Archive")
+    st.markdown("Store and query all collected leads permanently in a cloud database (PostgreSQL, Supabase, Neon, MySQL, or local SQLite).")
+
+    # Connection Settings
+    with st.expander("⚙️ Database Connection Settings", expanded=True):
+        col_db1, col_db2 = st.columns([3, 1])
+        with col_db1:
+            current_url = st.session_state.get("db_url", database.normalize_db_url())
+            new_db_url = st.text_input(
+                "Database Connection URL (PostgreSQL / Supabase / Neon / MySQL / SQLite):",
+                value=current_url,
+                type="password",
+                help="e.g. postgresql://postgres:password@db.supabase.co:5432/postgres or sqlite:///gmaps_leads_archive.db",
+                key="input_db_url"
+            )
+        with col_db2:
+            st.write("")
+            st.write("")
+            if st.button("🔌 Test & Connect", key="btn_test_db", use_container_width=True):
+                success, msg = database.test_connection(new_db_url)
+                if success:
+                    st.session_state["db_url"] = new_db_url
+                    st.success("✅ Connection Successful!")
+                    st.rerun()
+                else:
+                    st.error(f"❌ {msg}")
+
+        active_db = st.session_state.get("db_url", database.normalize_db_url())
+        is_conn_ok, conn_msg = database.test_connection(active_db)
+        if is_conn_ok:
+            st.caption(f"🟢 **Status**: Connected (`{database.re.sub(r':([^@]+)@', ':****@', active_db)}`)")
+        else:
+            st.caption(f"🔴 **Status**: Disconnected ({conn_msg})")
+
+    st.markdown("---")
+
+    # Live Statistics
+    try:
+        stats = database.get_db_stats(st.session_state.get("db_url"))
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("📊 Total Leads Stored", stats.get("total_leads", 0))
+        m2.metric("📱 Leads with Phone", stats.get("leads_with_phone", 0))
+        m3.metric("🏷️ Unique Categories", stats.get("unique_categories", 0))
+        m4.metric("🔍 Queries Searched", stats.get("unique_queries", 0))
+    except Exception as e:
+        st.warning(f"Unable to read database stats: {e}")
+
+    st.markdown("---")
+
+    # Filter & Query Database Records
+    st.markdown("#### 📋 Stored Leads Explorer")
+    fcol1, fcol2, fcol3, fcol4 = st.columns([1.5, 1.5, 1, 1])
+    with fcol1:
+        search_kw = st.text_input("Filter by Query / Location:", key="db_kw_filter", placeholder="e.g. uttara, pharmacy")
+    with fcol2:
+        search_cat = st.text_input("Filter by Category:", key="db_cat_filter", placeholder="e.g. Stationery, Doctor")
+    with fcol3:
+        only_phone = st.checkbox("Phone Only", value=True, key="db_po_filter")
+    with fcol4:
+        db_limit = st.selectbox("Max Rows:", options=[50, 100, 250, 500, 1000], index=1, key="db_limit_sel")
+
+    try:
+        db_df = database.fetch_leads_from_db(
+            db_url=st.session_state.get("db_url"),
+            query_filter=search_kw,
+            category_filter=search_cat,
+            has_phone_only=only_phone,
+            limit=db_limit
+        )
+
+        if not db_df.empty:
+            st.dataframe(db_df, width="stretch")
+            st.caption(f"Showing **{len(db_df)} records** from database.")
+
+            # Export buttons
+            e_col1, e_col2, e_col3 = st.columns([1, 1, 1.5])
+            with e_col1:
+                db_buf = io.BytesIO()
+                with pd.ExcelWriter(db_buf, engine='openpyxl') as writer:
+                    db_df.to_excel(writer, index=False, sheet_name='Archived_Leads')
+                st.download_button(
+                    label="📥 Download Excel (.xlsx)",
+                    data=db_buf.getvalue(),
+                    file_name="archived_leads.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="btn_dl_db_excel"
+                )
+            with e_col2:
+                db_csv = db_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 Download CSV (.csv)",
+                    data=db_csv,
+                    file_name="archived_leads.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key="btn_dl_db_csv"
+                )
+            with e_col3:
+                if st.button("💬 Push These Leads to WhatsApp Tab", key="btn_push_wa", use_container_width=True):
+                    st.session_state["active_leads_df"] = db_df
+                    st.success("✅ Successfully loaded into WhatsApp Automation session! Switch to Tab 3 to send messages.")
+        else:
+            st.info("No records found matching filters.")
+    except Exception as err:
+        st.error(f"Error querying database: {err}")
+
