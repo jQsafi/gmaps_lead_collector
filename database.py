@@ -57,6 +57,79 @@ class Lead(Base):
             "Updated At": self.updated_at.strftime("%Y-%m-%d %H:%M:%S") if self.updated_at else ""
         }
 
+class Campaign(Base):
+    __tablename__ = "campaigns"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), index=True, nullable=False)
+    message_template = Column(Text, nullable=False)
+    locations = Column(Text, nullable=True)
+    status = Column(String(50), default="Draft", index=True) # Draft, Running, Paused, Stopped, Completed
+    total_scraped = Column(Integer, default=0)
+    total_sent = Column(Integer, default=0)
+    total_failed = Column(Integer, default=0)
+    total_skipped = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> Dict:
+        return {
+            "ID": self.id,
+            "Name": self.name,
+            "Message Template": self.message_template,
+            "Locations": self.locations or "",
+            "Status": self.status,
+            "Total Scraped": self.total_scraped or 0,
+            "Total Sent": self.total_sent or 0,
+            "Total Failed": self.total_failed or 0,
+            "Total Skipped": self.total_skipped or 0,
+            "Created At": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else "",
+            "Completed At": self.completed_at.strftime("%Y-%m-%d %H:%M:%S") if self.completed_at else ""
+        }
+
+class CampaignMessage(Base):
+    __tablename__ = "campaign_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    campaign_id = Column(Integer, index=True, nullable=False)
+    campaign_name = Column(String(255), index=True, nullable=False)
+    lead_name = Column(String(255), nullable=True)
+    phone = Column(String(100), index=True, nullable=False)
+    message_text = Column(Text, nullable=True)
+    status = Column(String(50), default="Pending", index=True) # Sent, Failed, Invalid Number, Skipped Duplicate
+    error_message = Column(Text, nullable=True)
+    sent_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self) -> Dict:
+        return {
+            "ID": self.id,
+            "Campaign ID": self.campaign_id,
+            "Campaign Name": self.campaign_name,
+            "Business Name": self.lead_name or "",
+            "Phone": self.phone or "",
+            "Message Text": self.message_text or "",
+            "Status": self.status or "",
+            "Error Details": self.error_message or "",
+            "Date & Time": self.sent_at.strftime("%Y-%m-%d %H:%M:%S") if self.sent_at else ""
+        }
+
+class SavedMessage(Base):
+    __tablename__ = "saved_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> Dict:
+        return {
+            "ID": self.id,
+            "Title": self.title,
+            "Content": self.content,
+            "Created At": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else ""
+        }
+
 def normalize_db_url(url: Optional[str] = None) -> str:
     """
     Returns sanitized database URL compatible with SQLAlchemy.
@@ -268,5 +341,244 @@ def update_whatsapp_status(phone: str, status: str, db_url: Optional[str] = None
             {"whatsapp_status": status, "updated_at": datetime.utcnow()}
         )
         session.commit()
+    finally:
+        session.close()
+
+# ----------------- Campaign Management & Reporting ----------------- #
+
+def create_campaign(
+    name: str, 
+    message_template: str, 
+    locations: str = "", 
+    db_url: Optional[str] = None
+) -> int:
+    """Creates a new campaign record and returns its ID."""
+    engine = get_engine(db_url)
+    init_db(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        camp = Campaign(
+            name=name.strip(),
+            message_template=message_template.strip(),
+            locations=locations.strip(),
+            status="Draft",
+            total_scraped=0,
+            total_sent=0,
+            total_failed=0,
+            total_skipped=0,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        session.add(camp)
+        session.commit()
+        camp_id = camp.id
+        return camp_id
+    finally:
+        session.close()
+
+def get_campaign(campaign_id: int, db_url: Optional[str] = None) -> Optional[Dict]:
+    """Retrieve details of a single campaign by ID."""
+    engine = get_engine(db_url)
+    init_db(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        camp = session.query(Campaign).filter(Campaign.id == campaign_id).first()
+        return camp.to_dict() if camp else None
+    finally:
+        session.close()
+
+def get_all_campaigns(db_url: Optional[str] = None) -> pd.DataFrame:
+    """Retrieve all campaigns as a DataFrame."""
+    engine = get_engine(db_url)
+    init_db(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        camps = session.query(Campaign).order_by(Campaign.id.desc()).all()
+        return pd.DataFrame([c.to_dict() for c in camps]) if camps else pd.DataFrame()
+    finally:
+        session.close()
+
+def update_campaign_status(campaign_id: int, status: str, db_url: Optional[str] = None):
+    """Update state of a campaign (e.g. Running, Paused, Stopped, Completed)."""
+    engine = get_engine(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        update_data = {"status": status, "updated_at": datetime.utcnow()}
+        if status in ("Completed", "Stopped"):
+            update_data["completed_at"] = datetime.utcnow()
+        session.query(Campaign).filter(Campaign.id == campaign_id).update(update_data)
+        session.commit()
+    finally:
+        session.close()
+
+def update_campaign_stats(
+    campaign_id: int, 
+    scraped_delta: int = 0, 
+    sent_delta: int = 0, 
+    failed_delta: int = 0, 
+    skipped_delta: int = 0, 
+    db_url: Optional[str] = None
+):
+    """Increment execution metrics on a campaign."""
+    engine = get_engine(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        camp = session.query(Campaign).filter(Campaign.id == campaign_id).first()
+        if camp:
+            if scraped_delta:
+                camp.total_scraped = (camp.total_scraped or 0) + scraped_delta
+            if sent_delta:
+                camp.total_sent = (camp.total_sent or 0) + sent_delta
+            if failed_delta:
+                camp.total_failed = (camp.total_failed or 0) + failed_delta
+            if skipped_delta:
+                camp.total_skipped = (camp.total_skipped or 0) + skipped_delta
+            camp.updated_at = datetime.utcnow()
+            session.commit()
+    finally:
+        session.close()
+
+def normalize_phone_key(phone: str) -> str:
+    """Strip all non-digits for consistent comparison."""
+    if not phone:
+        return ""
+    digits = re.sub(r'\D', '', str(phone))
+    return digits[-10:] if len(digits) >= 10 else digits
+
+def has_campaign_messaged_phone(
+    campaign_id: int, 
+    phone: str, 
+    db_url: Optional[str] = None
+) -> bool:
+    """
+    Checks if a phone number was already sent a message under the same campaign.
+    Prevents duplicate messages to the same recipient in a campaign.
+    """
+    if not phone or not campaign_id:
+        return False
+    norm_phone = normalize_phone_key(phone)
+    if not norm_phone:
+        return False
+
+    engine = get_engine(db_url)
+    init_db(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        # Check exact phone match or last 10 digits
+        existing = session.query(CampaignMessage).filter(
+            CampaignMessage.campaign_id == campaign_id,
+            CampaignMessage.status.in_(["Sent", "Pending"])
+        ).all()
+        for msg in existing:
+            if normalize_phone_key(msg.phone) == norm_phone:
+                return True
+        return False
+    finally:
+        session.close()
+
+def log_campaign_message(
+    campaign_id: int,
+    campaign_name: str,
+    lead_name: str,
+    phone: str,
+    message_text: str,
+    status: str,
+    error_message: Optional[str] = None,
+    db_url: Optional[str] = None
+) -> Dict:
+    """Records an outreach attempt under a campaign."""
+    engine = get_engine(db_url)
+    init_db(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        record = CampaignMessage(
+            campaign_id=campaign_id,
+            campaign_name=campaign_name,
+            lead_name=lead_name,
+            phone=phone,
+            message_text=message_text,
+            status=status,
+            error_message=error_message,
+            sent_at=datetime.utcnow()
+        )
+        session.add(record)
+        session.commit()
+        return record.to_dict()
+    finally:
+        session.close()
+
+def fetch_campaign_reports(
+    campaign_id: Optional[int] = None,
+    start_date = None,
+    end_date = None,
+    status: Optional[str] = None,
+    limit: Optional[int] = 1000,
+    db_url: Optional[str] = None
+) -> pd.DataFrame:
+    """
+    Queries campaign outreach records filtered by Date & Time, Campaign, and Status.
+    """
+    engine = get_engine(db_url)
+    init_db(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        q = session.query(CampaignMessage).order_by(CampaignMessage.id.desc())
+        if campaign_id:
+            q = q.filter(CampaignMessage.campaign_id == campaign_id)
+        if status and status != "All":
+            q = q.filter(CampaignMessage.status == status)
+        if start_date:
+            s_dt = datetime.combine(start_date, datetime.min.time())
+            q = q.filter(CampaignMessage.sent_at >= s_dt)
+        if end_date:
+            e_dt = datetime.combine(end_date, datetime.max.time())
+            q = q.filter(CampaignMessage.sent_at <= e_dt)
+        if limit:
+            q = q.limit(limit)
+
+        records = q.all()
+        return pd.DataFrame([r.to_dict() for r in records]) if records else pd.DataFrame()
+    finally:
+        session.close()
+
+def save_message_template(title: str, content: str, db_url: Optional[str] = None):
+    """Saves a message template for instant reuse without re-typing."""
+    if not content or not content.strip():
+        return
+    engine = get_engine(db_url)
+    init_db(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        # Check if already exists
+        existing = session.query(SavedMessage).filter(SavedMessage.content == content.strip()).first()
+        if not existing:
+            tpl = SavedMessage(
+                title=title.strip() or f"Template {datetime.utcnow().strftime('%b %d, %H:%M')}",
+                content=content.strip(),
+                created_at=datetime.utcnow()
+            )
+            session.add(tpl)
+            session.commit()
+    finally:
+        session.close()
+
+def get_saved_message_templates(db_url: Optional[str] = None) -> List[Dict]:
+    """Retrieves all stored message templates."""
+    engine = get_engine(db_url)
+    init_db(db_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        tpls = session.query(SavedMessage).order_by(SavedMessage.id.desc()).all()
+        return [t.to_dict() for t in tpls]
     finally:
         session.close()

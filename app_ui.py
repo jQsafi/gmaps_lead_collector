@@ -3,6 +3,8 @@ import sys
 import time
 import subprocess
 import io
+import threading
+from datetime import datetime, date
 import streamlit as st
 import pandas as pd
 from scraper import scrape_google_maps, batch_scrape, DEFAULT_FIELDS
@@ -12,8 +14,10 @@ from whatsapp_sender import (
     launch_whatsapp_login_window,
     bulk_send_whatsapp,
     send_test_whatsapp_message,
-    parse_manual_numbers
+    parse_manual_numbers,
+    close_whatsapp_session
 )
+from campaign_engine import run_campaign
 import database
 import groq_helper
 
@@ -801,14 +805,470 @@ def render_leads_metric_summary(df: pd.DataFrame):
     with m4:
         st.metric("Phone Coverage", phone_rate)
 
-# Tabs: AI Sales Strategist vs Single Search vs Batch Search vs WhatsApp Automation vs Remote Database
-tab_ai, tab1, tab2, tab3, tab4 = st.tabs([
+# Tabs: Campaigns, Reports, AI Strategist, Single Search, Batch Search, WhatsApp, Remote Database
+tab_camp, tab_rep, tab_ai, tab1, tab2, tab3, tab4 = st.tabs([
+    "🚀 Automated Campaigns (Auto-Scrape & Send)",
+    "📊 Date/Time Campaign Reports",
     "💡 AI Sales Strategist",
     "🔍 Single Search", 
     "🗺️ Multi-Location / Multi-Keyword Search", 
-    "💬 WhatsApp Automation", 
-    "🗄️ Remote Database"
+    "💬 WhatsApp Manual Outreach", 
+    "🗄️ Remote Database Archive"
 ])
+
+with tab_camp:
+    st.markdown("""
+    <div class="tab-header-card">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:1.6rem;">🚀</span>
+            <div>
+                <h3 style="margin:0; font-size:1.35rem; font-weight:700;">Automated Campaign Engine</h3>
+                <span style="font-size:0.83rem; color:#64748B;">Continuous pipeline: scrape Google Maps, store in database, and immediately dispatch WhatsApp messages with duplicate protection</span>
+            </div>
+        </div>
+        <span class="pill-badge pill-primary">Pipeline V3</span>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("Set up and launch an automated lead generation & outreach campaign. Leads are stored to the database as they are found, and WhatsApp messages are sent instantly with pause, resume, stop, and anti-duplicate rules.")
+
+    if "camp_control_state" not in st.session_state:
+        st.session_state["camp_control_state"] = {"paused": False, "stopped": False}
+    if "camp_msg_content_val" not in st.session_state:
+        st.session_state["camp_msg_content_val"] = "Hello {Name}, we noticed your business ({Category}) in {Address}. Are you currently accepting new orders/clients?"
+    if "camp_locs_text" not in st.session_state:
+        st.session_state["camp_locs_text"] = "stationary shop in uttara\nstationary shop in dhanmondi\nstationary shop in mirpur"
+
+    col_c1, col_c2 = st.columns([1.4, 1])
+
+    with col_c1:
+        # Step 1: Campaign Name
+        st.markdown("#### 1️⃣ Step 1: Campaign Identity")
+        all_past_camps = database.get_all_campaigns(db_url=st.session_state.get("db_url"))
+        past_camp_names = ["-- Create New Campaign --"] + ([f"#{row['ID']} - {row['Name']} ({row['Status']})" for _, row in all_past_camps.iterrows()] if not all_past_camps.empty else [])
+        
+        sel_camp_mode = st.selectbox("Campaign Mode:", options=past_camp_names, key="sel_camp_mode_choice")
+        
+        if sel_camp_mode == "-- Create New Campaign --":
+            camp_name = st.text_input("Campaign Name *:", value=st.session_state.get("saved_camp_name", f"Campaign {datetime.now().strftime('%b %d - %H:%M')}"), placeholder="e.g. Uttara Stationery Super Sale", key="input_camp_name")
+            current_active_camp_id = None
+        else:
+            camp_id_match = re.search(r"#(\d+)", sel_camp_mode)
+            current_active_camp_id = int(camp_id_match.group(1)) if camp_id_match else None
+            camp_data = database.get_campaign(current_active_camp_id, db_url=st.session_state.get("db_url")) if current_active_camp_id else {}
+            camp_name = camp_data.get("Name", "Loaded Campaign")
+            st.info(f"Loaded Campaign #{current_active_camp_id}: **{camp_name}** | Status: **{camp_data.get('Status')}**")
+            if st.session_state.get("loaded_campaign_id_tracker") != current_active_camp_id:
+                st.session_state["loaded_campaign_id_tracker"] = current_active_camp_id
+                if camp_data.get("Message Template"):
+                    st.session_state["camp_msg_content_val"] = camp_data["Message Template"]
+                if camp_data.get("Locations"):
+                    st.session_state["camp_locs_text"] = camp_data["Locations"]
+                st.rerun()
+
+        st.markdown("---")
+
+        # Step 2: Campaign Message
+        st.markdown("#### 2️⃣ Step 2: Campaign Message")
+        
+        # Saved Messages Memory selector
+        saved_tpls = database.get_saved_message_templates(db_url=st.session_state.get("db_url"))
+        if saved_tpls:
+            tpl_options = ["-- Select from Saved Message Memory --"] + [f"{t['Title']}: {t['Content'][:40]}..." for t in saved_tpls]
+            sel_saved_tpl = st.selectbox("📚 Memory Templates (Do not re-type):", options=tpl_options, key="sel_saved_tpl_key")
+            if sel_saved_tpl != "-- Select from Saved Message Memory --":
+                for t in saved_tpls:
+                    if sel_saved_tpl.startswith(t['Title']):
+                        if st.session_state.get("camp_msg_content_val") != t["Content"]:
+                            st.session_state["camp_msg_content_val"] = t["Content"]
+                            st.rerun()
+                        break
+
+        # AI Message Generator Expander
+        with st.expander("🪄 Write Message with AI Copywriter Prompt", expanded=False):
+            st.caption("Type a question or prompt describing what you want to offer. AI will write a tailored pitch:")
+            ai_camp_prompt = st.text_input("AI Copywriter Prompt:", placeholder="e.g. Write a friendly 2-sentence pitch offering POS software with free demo", key="input_ai_camp_prompt")
+            col_ai_btn1, col_ai_btn2 = st.columns([1, 1])
+            with col_ai_btn1:
+                if st.button("✨ Generate Message with AI", key="btn_gen_camp_ai_msg"):
+                    if ai_camp_prompt.strip():
+                        with st.spinner("AI is crafting your cold pitch..."):
+                            gen_msg = groq_helper.generate_outreach_template(goal=ai_camp_prompt.strip())
+                            st.session_state["last_gen_camp_ai_msg"] = gen_msg
+                    else:
+                        st.warning("Please enter a prompt.")
+            
+            last_ai_generated = st.session_state.get("last_gen_camp_ai_msg", "")
+            if last_ai_generated:
+                st.info(f"**Generated Pitch:**\n\n{last_ai_generated}")
+                with col_ai_btn2:
+                    if st.button("📥 Place Message into Box", key="btn_place_ai_msg_box"):
+                        st.session_state["camp_msg_content_val"] = last_ai_generated
+                        st.success("✅ Placed into message box!")
+                        st.rerun()
+
+        camp_message_text = st.text_area(
+            "Campaign Message Template (Supports dynamic variables):",
+            height=110,
+            key="camp_msg_content_val"
+        )
+        st.caption("💡 Supported dynamic variables: `{Name}`, `{Category}`, `{Address}`, `{Phone}`, `{Website}`")
+
+        # Save to memory button
+        if st.button("💾 Save Message to Memory for Future Campaigns", key="btn_save_tpl_mem"):
+            if camp_message_text.strip():
+                database.save_message_template(
+                    title=f"{camp_name[:25]} Pitch",
+                    content=camp_message_text.strip(),
+                    db_url=st.session_state.get("db_url")
+                )
+                st.success("✅ Message saved to Memory! You can select it in any future campaign without re-typing.")
+                st.rerun()
+
+        # Optional media attachment
+        camp_media_file = st.file_uploader("📎 Attach Promo Media (Optional - Image, PDF brochure, Catalog):", type=["png", "jpg", "jpeg", "pdf", "mp4"], key="camp_media_up")
+
+    with col_c2:
+        # Step 3: Target Location (Single or Multiple)
+        st.markdown("#### 3️⃣ Step 3: Target Locations")
+        st.caption("Enter keywords and locations (one per line). User can edit or add locations when paused/stopped:")
+        camp_locations_input = st.text_area(
+            "Target Search Queries & Locations:",
+            height=115,
+            key="camp_locs_text"
+        )
+        
+        loc_col1, loc_col2 = st.columns(2)
+        with loc_col1:
+            camp_max_per_loc = st.number_input("Max Leads / Location:", min_value=1, max_value=200, value=15, step=5, key="camp_max_lim")
+        with loc_col2:
+            camp_delay = st.slider("Delay (seconds):", min_value=3, max_value=30, value=6, key="camp_delay_val")
+
+        camp_cc = st.text_input("Default Country Code (without +):", value="880", key="camp_cc_val")
+        camp_visible_browser = st.checkbox("👁️ Visible Browser Mode", value=False, help="Show Chromium automation window on your desktop", key="camp_vis_mode")
+
+        st.markdown("---")
+
+        # Step 4: Connect with WhatsApp
+        st.markdown("#### 4️⃣ Step 4: WhatsApp Connection")
+        st.caption("Fresh connection required per campaign; session closes automatically upon completion.")
+        
+        is_wa_active = check_login_status()
+        if is_wa_active:
+            st.success("🟢 **WhatsApp Web Ready** (Authenticated session found)")
+        else:
+            st.warning("⚪ **WhatsApp Web Not Connected** (Please scan QR Code)")
+
+        camp_qr_box = st.empty()
+        wa_btn_col1, wa_btn_col2 = st.columns(2)
+        with wa_btn_col1:
+            if st.button("🔑 Connect / Scan QR", key="btn_camp_wa_connect", use_container_width=True):
+                with st.spinner("Connecting to WhatsApp Web..."):
+                    def camp_qr_cb(shot, note):
+                        if shot is not None:
+                            with camp_qr_box.container():
+                                st.info(f"📱 {note}:")
+                                st.image(shot, width=380)
+                        else:
+                            camp_qr_box.empty()
+
+                    ok = launch_whatsapp_login_window(timeout_minutes=3, qr_callback=camp_qr_cb)
+                    if ok:
+                        st.success("🎉 WhatsApp connected successfully!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Authentication timed out or closed.")
+        with wa_btn_col2:
+            if st.button("🔄 Reset / Clear Session", key="btn_camp_wa_reset", use_container_width=True):
+                close_whatsapp_session()
+                st.info("WhatsApp session reset. Please connect afresh.")
+                st.rerun()
+
+    st.markdown("---")
+
+    # Step 5: Start, Pause, Resume, Stop Campaign
+    st.markdown("#### 5️⃣ Step 5: Live Campaign Execution")
+    
+    active_thread_state = st.session_state.get("camp_thread_state")
+    is_worker_alive = active_thread_state is not None and active_thread_state.get("is_running", False)
+
+    ctl1, ctl2, ctl3, ctl4 = st.columns([1.5, 1, 1, 1])
+    with ctl1:
+        start_camp_btn = st.button("🚀 Start Campaign Pipeline", type="primary", use_container_width=True, key="btn_start_camp", disabled=is_worker_alive)
+    with ctl2:
+        pause_camp_btn = st.button("⏸️ Pause", use_container_width=True, key="btn_pause_camp", disabled=not is_worker_alive)
+    with ctl3:
+        resume_camp_btn = st.button("▶️ Resume", use_container_width=True, key="btn_resume_camp")
+    with ctl4:
+        stop_camp_btn = st.button("⏹️ Stop", use_container_width=True, key="btn_stop_camp", disabled=not is_worker_alive)
+
+    if pause_camp_btn and active_thread_state:
+        active_thread_state["control"]["paused"] = True
+        database.update_campaign_status(active_thread_state["campaign_id"], "Paused", db_url=st.session_state.get("db_url"))
+        st.warning("⏸️ Pause signal sent! Campaign is pausing at next listing.")
+        st.rerun()
+
+    if resume_camp_btn:
+        if active_thread_state and active_thread_state.get("is_running"):
+            active_thread_state["control"]["paused"] = False
+            # Dynamic update: user can change target locations or message while paused/stopped!
+            new_locs = [l.strip() for l in camp_locations_input.split("\n") if l.strip()]
+            active_thread_state["control"]["locations"] = new_locs
+            active_thread_state["control"]["message_template"] = camp_message_text.strip()
+            database.update_campaign_status(active_thread_state["campaign_id"], "Running", db_url=st.session_state.get("db_url"))
+            st.success("▶️ Resume signal sent! Resumed campaign with latest target locations.")
+            st.rerun()
+        else:
+            st.info("No active paused campaign thread. Click 'Start Campaign Pipeline' to launch.")
+
+    if stop_camp_btn and active_thread_state:
+        active_thread_state["control"]["stopped"] = True
+        database.update_campaign_status(active_thread_state["campaign_id"], "Stopped", db_url=st.session_state.get("db_url"))
+        st.error("⏹️ Stop signal sent! Halting campaign and closing browsers.")
+        st.rerun()
+
+    if start_camp_btn:
+        if not camp_name.strip():
+            st.error("⚠️ Please specify a Campaign Name in Step 1.")
+        elif not camp_message_text.strip():
+            st.error("⚠️ Please provide a Campaign Message in Step 2.")
+        elif not camp_locations_input.strip():
+            st.error("⚠️ Please provide at least one Target Location in Step 3.")
+        else:
+            loc_list = [l.strip() for l in camp_locations_input.split("\n") if l.strip()]
+            
+            if current_active_camp_id:
+                active_cid = current_active_camp_id
+                database.update_campaign_status(active_cid, "Running", db_url=st.session_state.get("db_url"))
+            else:
+                active_cid = database.create_campaign(
+                    name=camp_name.strip(),
+                    message_template=camp_message_text.strip(),
+                    locations=camp_locations_input.strip(),
+                    db_url=st.session_state.get("db_url")
+                )
+            
+            st.session_state["active_campaign_id"] = active_cid
+
+            saved_media_file_path = None
+            if camp_media_file is not None:
+                media_dir = os.path.abspath("./whatsapp_temp_media")
+                os.makedirs(media_dir, exist_ok=True)
+                saved_media_file_path = os.path.join(media_dir, camp_media_file.name)
+                with open(saved_media_file_path, "wb") as f:
+                    f.write(camp_media_file.getbuffer())
+
+            # Initialize thread state
+            thread_state = {
+                "is_running": True,
+                "campaign_id": active_cid,
+                "campaign_name": camp_name.strip(),
+                "control": {
+                    "paused": False,
+                    "stopped": False,
+                    "locations": loc_list,
+                    "message_template": camp_message_text.strip()
+                },
+                "stats": {"scraped": 0, "sent": 0, "failed": 0, "skipped": 0, "status": "Running"},
+                "status_msg": "🚀 Starting campaign automation...",
+                "screenshot": None,
+                "grid_df": pd.DataFrame(),
+                "error": None
+            }
+            st.session_state["camp_thread_state"] = thread_state
+
+            def _bg_campaign_worker(cid, cname, ctemplate, clocs, cmax, ccode, cdelay, cvis, cmedia, db_url, state_dict):
+                def _cb(msg, stats, screenshot=None, grid_df=None):
+                    state_dict["status_msg"] = msg
+                    state_dict["stats"] = stats
+                    if screenshot is not None:
+                        state_dict["screenshot"] = screenshot
+                    if grid_df is not None:
+                        state_dict["grid_df"] = grid_df
+
+                try:
+                    res = run_campaign(
+                        campaign_id=cid,
+                        campaign_name=cname,
+                        message_template=ctemplate,
+                        queries_or_locations=clocs,
+                        max_per_location=cmax,
+                        default_country_code=ccode,
+                        delay_between_messages=cdelay,
+                        show_browser=cvis,
+                        media_path=cmedia,
+                        db_url=db_url,
+                        progress_callback=_cb,
+                        control_state=state_dict["control"]
+                    )
+                    state_dict["status_msg"] = f"Finished ({res.get('status', 'Completed')})"
+                except Exception as exc:
+                    state_dict["error"] = str(exc)
+                    state_dict["status_msg"] = f"Error: {exc}"
+                finally:
+                    state_dict["is_running"] = False
+
+            w_thread = threading.Thread(
+                target=_bg_campaign_worker,
+                args=(
+                    active_cid,
+                    camp_name.strip(),
+                    camp_message_text.strip(),
+                    loc_list,
+                    camp_max_per_loc,
+                    camp_cc.strip(),
+                    camp_delay,
+                    camp_visible_browser,
+                    saved_media_file_path,
+                    st.session_state.get("db_url"),
+                    thread_state
+                ),
+                daemon=True
+            )
+            w_thread.start()
+            st.session_state["camp_thread_obj"] = w_thread
+            st.rerun()
+
+    # Fragment to auto-refresh live dashboard every 2 seconds when campaign is active
+    @st.fragment(run_every="2s")
+    def render_live_campaign_dashboard():
+        state = st.session_state.get("camp_thread_state")
+        if not state:
+            col_g, col_s = st.columns([1.3, 1])
+            with col_g:
+                st.info("Live campaign data and outreach logs will appear here once started.")
+            with col_s:
+                st.markdown(get_browser_window_frame("Automated Campaign Simulation"), unsafe_allow_html=True)
+                st.caption("Chromium browser automation preview will display live actions here.")
+            return
+
+        stats = state.get("stats", {})
+        status_msg = state.get("status_msg", "Running...")
+        ctrl = state.get("control", {})
+        
+        # Status header alert
+        if ctrl.get("stopped"):
+            st.error(f"⏹️ **Campaign Stopped:** {status_msg}")
+        elif ctrl.get("paused"):
+            st.warning(f"⏸️ **Campaign Paused:** {status_msg} (Edit locations or click 'Resume' above)")
+        elif not state.get("is_running"):
+            st.success(f"🎉 **Campaign Finished:** {status_msg}")
+        else:
+            st.info(f"⚡ **Active Status:** {status_msg}")
+
+        # KPI Metrics
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("📍 Leads Scraped", f"{stats.get('scraped', 0):,}")
+        m2.metric("💬 WhatsApp Sent", f"{stats.get('sent', 0):,}")
+        m3.metric("⏭️ Duplicates Prevented", f"{stats.get('skipped', 0):,}")
+        m4.metric("❌ Failed / No Phone", f"{stats.get('failed', 0):,}")
+
+        col_grid, col_sim = st.columns([1.3, 1])
+        with col_grid:
+            grid_df = state.get("grid_df")
+            if grid_df is not None and not grid_df.empty:
+                st.markdown(f"### 📋 Live Campaign Activity Stream ({len(grid_df)} events)")
+                st.dataframe(grid_df, width="stretch")
+            else:
+                st.caption("Waiting for first extracted lead...")
+
+        with col_sim:
+            st.markdown(get_browser_window_frame(f"Action: {status_msg[:35]}"), unsafe_allow_html=True)
+            shot = state.get("screenshot")
+            if shot is not None:
+                st.image(shot, use_container_width=True)
+            else:
+                st.caption("Live browser window will render snapshots as steps execute.")
+
+    render_live_campaign_dashboard()
+
+with tab_rep:
+    st.markdown("""
+    <div class="tab-header-card">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:1.6rem;">📊</span>
+            <div>
+                <h3 style="margin:0; font-size:1.35rem; font-weight:700;">Date & Time Campaign Reports</h3>
+                <span style="font-size:0.83rem; color:#64748B;">Audit trail: historical outreach logs, delivery statuses, duplicates prevented, and performance metrics</span>
+            </div>
+        </div>
+        <span class="pill-badge pill-primary">Audited Logs</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    all_camps_df = database.get_all_campaigns(db_url=st.session_state.get("db_url"))
+    camp_filter_options = ["All Campaigns"]
+    if not all_camps_df.empty:
+        camp_filter_options += [f"#{row['ID']} - {row['Name']}" for _, row in all_camps_df.iterrows()]
+
+    f_col1, f_col2, f_col3, f_col4 = st.columns([1.5, 1, 1, 1])
+    with f_col1:
+        rep_camp_sel = st.selectbox("Select Campaign:", options=camp_filter_options, key="rep_sel_camp")
+    with f_col2:
+        rep_status_sel = st.selectbox("Delivery Status:", ["All", "Sent", "Failed", "Skipped Duplicate", "Invalid Number"], key="rep_sel_status")
+    with f_col3:
+        rep_start_date = st.date_input("From Date:", value=datetime.now().date(), key="rep_dt_start")
+    with f_col4:
+        rep_end_date = st.date_input("To Date:", value=datetime.now().date(), key="rep_dt_end")
+
+    filter_cid = None
+    if rep_camp_sel != "All Campaigns":
+        m_id = re.search(r"#(\d+)", rep_camp_sel)
+        if m_id:
+            filter_cid = int(m_id.group(1))
+
+    try:
+        report_df = database.fetch_campaign_reports(
+            campaign_id=filter_cid,
+            start_date=rep_start_date,
+            end_date=rep_end_date,
+            status=rep_status_sel if rep_status_sel != "All" else None,
+            db_url=st.session_state.get("db_url")
+        )
+
+        if not report_df.empty:
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            total_logs = len(report_df)
+            sent_logs = len(report_df[report_df["Status"].str.lower() == "sent"])
+            dup_logs = len(report_df[report_df["Status"].str.lower().str.contains("duplicate|skipped")])
+            success_pct = f"{(sent_logs / total_logs * 100):.1f}%" if total_logs > 0 else "0%"
+
+            kpi1.metric("Total Events Logged", f"{total_logs:,}")
+            kpi2.metric("Messages Delivered", f"{sent_logs:,}", delta=success_pct)
+            kpi3.metric("Duplicates Prevented", f"{dup_logs:,}")
+            kpi4.metric("Success Rate", success_pct)
+
+            st.markdown("---")
+            st.dataframe(report_df, width="stretch")
+            st.caption(f"Showing **{len(report_df)} outreach records** for selected filters.")
+
+            e_col1, e_col2 = st.columns(2)
+            with e_col1:
+                rep_buf = io.BytesIO()
+                with pd.ExcelWriter(rep_buf, engine='openpyxl') as writer:
+                    report_df.to_excel(writer, index=False, sheet_name='Campaign_Report')
+                st.download_button(
+                    label="📥 Export Report to Excel (.xlsx)",
+                    data=rep_buf.getvalue(),
+                    file_name=f"campaign_report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="btn_dl_rep_excel"
+                )
+            with e_col2:
+                rep_csv = report_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 Export Report to CSV (.csv)",
+                    data=rep_csv,
+                    file_name=f"campaign_report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key="btn_dl_rep_csv"
+                )
+        else:
+            st.info("No campaign activity logs found for the selected criteria.")
+    except Exception as rep_err:
+        st.error(f"Error loading campaign report: {rep_err}")
 
 with tab_ai:
     st.markdown("""

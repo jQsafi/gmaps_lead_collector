@@ -42,6 +42,23 @@ def check_login_status(session_dir: str = DEFAULT_SESSION_DIR) -> bool:
     contents = list(session_path.glob("*"))
     return len(contents) > 3
 
+def close_whatsapp_session(session_dir: str = DEFAULT_SESSION_DIR) -> bool:
+    """Closes and resets active session marker so next campaign authenticates freshly."""
+    try:
+        session_path = Path(session_dir)
+        marker = session_path / "session_active.marker"
+        if marker.exists():
+            marker.unlink()
+        for lock_file in session_path.glob("Singleton*"):
+            try:
+                lock_file.unlink()
+            except Exception:
+                pass
+        return True
+    except Exception as e:
+        print(f"Error resetting WhatsApp session: {e}")
+        return False
+
 def is_headless_environment() -> bool:
     """Detect if running on a headless cloud server without an X11 desktop display."""
     import platform
