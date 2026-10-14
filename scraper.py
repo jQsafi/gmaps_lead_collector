@@ -51,6 +51,22 @@ def clean_phone_number(raw_phone: str) -> str:
     cleaned = re.sub(r'[^\d)]+$', '', cleaned).strip()
     return cleaned
 
+def extract_phone_from_text(text: str) -> str:
+    """Extract first valid phone number from raw string or card snippet."""
+    if not text:
+        return ""
+    # 1. BD format: +880 1XXX-XXXXXX or +8801XXXXXXXXX or 01XXXXXXXXX or 01XXX-XXXXXX
+    bd_match = re.search(r'(?:\+?880\s?|0)1[3-9]\d{2}[\s\-]?\d{6}', text)
+    if bd_match:
+        return clean_phone_number(bd_match.group(0))
+    # 2. International format: +XXX XXXXXXXX with 10-15 digits
+    intl_match = re.search(r'\+\d{1,4}[-.\s]?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}', text)
+    if intl_match:
+        digits = re.sub(r'\D', '', intl_match.group(0))
+        if 10 <= len(digits) <= 15:
+            return clean_phone_number(intl_match.group(0))
+    return ""
+
 def clean_address(raw_addr: str) -> str:
     """Extract clean address string without language prefixes (English & Bengali)."""
     if not raw_addr:
@@ -229,25 +245,28 @@ def scrape_google_maps(
 
                 # 2. Phone / Mobile Number
                 phone = ""
+                card_phone = extract_phone_from_text(item.text_content() or "")
                 if "Phone" in active_fields or phone_only:
-                    candidates = page.locator('*[data-item-id^="phone:"], a[href^="tel:"], button[aria-label^="Phone:" i], button[aria-label^="ফোন:" i]').all()
+                    candidates = page.locator('*[data-item-id*="phone:"], a[href^="tel:"], button[data-tooltip*="phone" i], button[data-tooltip*="ফোন" i], button[aria-label*="Phone" i], button[aria-label*="ফোন" i]').all()
                     for cand in candidates:
                         aria = cand.get_attribute("aria-label") or ""
-                        if "send to phone" in aria.lower():
+                        if "send to phone" in aria.lower() or "copy phone" in aria.lower():
                             continue
                         data_id = cand.get_attribute("data-item-id") or ""
                         href = cand.get_attribute("href") or ""
                         txt = cand.text_content() or ""
                         
-                        # Prefer aria-label if it has digits (usually has formatted number e.g. 01744-462333)
-                        if any(ch.isdigit() for ch in aria):
-                            cleaned = clean_phone_number(aria)
-                        else:
-                            cleaned = clean_phone_number(data_id or href or txt)
-                        
-                        if any(ch.isdigit() for ch in cleaned):
+                        raw_c = aria if any(ch.isdigit() for ch in aria) else (data_id or href or txt)
+                        cleaned = clean_phone_number(raw_c)
+                        if any(ch.isdigit() for ch in cleaned) and len(re.sub(r'\D', '', cleaned)) >= 7:
                             phone = cleaned
                             break
+                    
+                    if not phone and card_phone:
+                        phone = card_phone
+                    
+                    if not phone and main_pane.count() > 0:
+                        phone = extract_phone_from_text(main_pane.text_content() or "")
 
                 # Skip if phone_only is required and phone is missing
                 if phone_only and not phone:

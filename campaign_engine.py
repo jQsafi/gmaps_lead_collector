@@ -38,7 +38,7 @@ def close_whatsapp_session(session_dir=None):
         return True
     except Exception:
         return False
-from scraper import clean_phone_number, clean_address, make_whatsapp_link, DEFAULT_FIELDS
+from scraper import clean_phone_number, clean_address, make_whatsapp_link, DEFAULT_FIELDS, extract_phone_from_text
 
 def run_campaign(
     campaign_id: int,
@@ -264,17 +264,48 @@ def run_campaign(
                         if not name or name in seen_names:
                             continue
 
-                        # Click listing to load detail panel
+                        # 1. Pre-extract phone from card snippet in the feed
+                        card_phone = ""
+                        try:
+                            parent_card = a_elem.locator('xpath=..')
+                            card_phone = extract_phone_from_text(parent_card.text_content() or "")
+                        except Exception:
+                            pass
+
+                        # 2. Click listing to load detail panel
                         a_elem.scroll_into_view_if_needed(timeout=2000)
                         a_elem.click(timeout=3000)
                         time.sleep(1.8)
 
-                        # Extract Phone
+                        # 3. Extract Phone from detail panel
                         phone = ""
-                        phone_btn = maps_page.locator('*[data-item-id*="phone:"], button[data-tooltip*="phone" i], button[data-tooltip*="ফোন" i], button[aria-label*="Phone" i], button[aria-label*="ফোন" i]').first
-                        if phone_btn.count() > 0:
-                            raw_p = phone_btn.get_attribute("aria-label") or phone_btn.text_content() or ""
-                            phone = clean_phone_number(raw_p)
+                        candidates = maps_page.locator('*[data-item-id*="phone:"], a[href^="tel:"], button[data-tooltip*="phone" i], button[data-tooltip*="ফোন" i], button[aria-label*="Phone" i], button[aria-label*="ফোন" i]').all()
+                        for c in candidates:
+                            aria = c.get_attribute("aria-label") or ""
+                            if "send to phone" in aria.lower() or "copy phone" in aria.lower():
+                                continue
+                            data_id = c.get_attribute("data-item-id") or ""
+                            href = c.get_attribute("href") or ""
+                            txt = c.text_content() or ""
+                            
+                            raw_p = aria if any(ch.isdigit() for ch in aria) else (data_id or href or txt)
+                            cleaned = clean_phone_number(raw_p)
+                            if any(ch.isdigit() for ch in cleaned) and len(re.sub(r'\D', '', cleaned)) >= 7:
+                                phone = cleaned
+                                break
+
+                        # 4. Fallback to card snippet phone
+                        if not phone and card_phone:
+                            phone = card_phone
+
+                        # 5. Fallback to detail panel text scan
+                        if not phone:
+                            try:
+                                panel_pane = maps_page.locator('div[role="main"]').first
+                                if panel_pane.count() > 0:
+                                    phone = extract_phone_from_text(panel_pane.text_content() or "")
+                            except Exception:
+                                pass
 
                         # Address
                         address = ""
